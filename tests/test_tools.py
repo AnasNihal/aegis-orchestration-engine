@@ -58,6 +58,18 @@ def test_executor_enforces_allowlist_and_read_root(tmp_path: Path) -> None:
     assert "not permitted" in (denied_result.error or "")
 
 
+def test_per_call_allowlist_cannot_be_bypassed_by_a_tool_call() -> None:
+    executor = ToolExecutor(build_builtin_registry())
+
+    result = executor.execute_call(
+        ToolCall(name="current_time"),
+        allowed_tools={"calculator"},
+    )
+
+    assert result.success is False
+    assert "not permitted" in (result.error or "")
+
+
 def test_confirmation_required_tool_waits_without_confirmation() -> None:
     registry = ToolRegistry()
     registry.register(
@@ -115,4 +127,3 @@ def test_registry_rejects_duplicates_and_bad_names() -> None:
                 handler=lambda: None,
             )
         )
-

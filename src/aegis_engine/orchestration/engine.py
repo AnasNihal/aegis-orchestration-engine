@@ -139,7 +139,7 @@ class Orchestrator:
             )
             state = self._save(state.with_updates(phase=f"tool_iteration_{iteration + 1}"))
             for call in response.tool_calls:
-                result = self.tool_executor.execute_call(call)
+                result = self.tool_executor.execute_call(call, allowed_tools=set(tool_names))
                 state = self._record_tool_result(state, result, model=f"{model.provider}/{model.model_id}")
                 if result.requires_confirmation:
                     return self._save(

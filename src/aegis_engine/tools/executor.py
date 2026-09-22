@@ -42,17 +42,29 @@ class ToolExecutor:
         self.allowed_tools = None if allowed_tools is None else frozenset(allowed_tools)
         self.confirmation_handler = confirmation_handler
 
-    def execute_call(self, call: ToolCall) -> ToolResult:
-        return self.execute(call.name, call.arguments)
+    def execute_call(
+        self,
+        call: ToolCall,
+        *,
+        allowed_tools: set[str] | frozenset[str] | None = None,
+    ) -> ToolResult:
+        return self.execute(call.name, call.arguments, allowed_tools=allowed_tools)
 
-    def execute(self, name: str, arguments: Mapping[str, Any] | None = None) -> ToolResult:
+    def execute(
+        self,
+        name: str,
+        arguments: Mapping[str, Any] | None = None,
+        *,
+        allowed_tools: set[str] | frozenset[str] | None = None,
+    ) -> ToolResult:
         started = monotonic()
         try:
             tool = self.registry.get(name)
         except Exception as exc:
             return self._failure(name, f"Tool unavailable: {exc}", started=started)
         args = dict(arguments or {})
-        if self.allowed_tools is not None and name not in self.allowed_tools:
+        effective_allowlist = self.allowed_tools if allowed_tools is None else frozenset(allowed_tools)
+        if effective_allowlist is not None and name not in effective_allowlist:
             return self._failure(name, "Tool is not permitted for this task", tool=tool, started=started)
         try:
             validate_arguments(tool.input_schema, args)
@@ -121,4 +133,3 @@ class ToolExecutor:
             duration_ms=int((monotonic() - started) * 1000),
             requires_confirmation=requires_confirmation,
         )
-

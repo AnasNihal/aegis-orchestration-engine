@@ -1,0 +1,75 @@
+"""Runtime configuration for the orchestration engine.
+
+Configuration is intentionally small in the first milestone. Environment
+variables make local development easy without introducing a configuration
+framework or requiring secrets in source control.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
+from typing import Mapping
+from urllib.parse import urlparse
+
+
+class ConfigurationError(ValueError):
+    """Raised when configuration cannot be used safely."""
+
+
+def _parse_bool(value: str, *, name: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigurationError(f"{name} must be a boolean value")
+
+
+def _parse_positive_float(value: str, *, name: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be a number") from exc
+    if parsed <= 0:
+        raise ConfigurationError(f"{name} must be greater than zero")
+    return parsed
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Validated settings used by the model gateway."""
+
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    default_model: str = "qwen2.5:7b"
+    request_timeout_seconds: float = 60.0
+    local_only: bool = True
+
+    def __post_init__(self) -> None:
+        parsed = urlparse(self.ollama_base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ConfigurationError("ollama_base_url must be an absolute HTTP(S) URL")
+        if not self.default_model.strip():
+            raise ConfigurationError("default_model must not be empty")
+        if self.request_timeout_seconds <= 0:
+            raise ConfigurationError("request_timeout_seconds must be greater than zero")
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> "Settings":
+        """Build settings from environment variables without reading secrets."""
+
+        values = os.environ if environ is None else environ
+        timeout_value = values.get("MMO_REQUEST_TIMEOUT_SECONDS", "60")
+        local_only_value = values.get("MMO_LOCAL_ONLY", "true")
+        return cls(
+            ollama_base_url=values.get("MMO_OLLAMA_BASE_URL", cls.ollama_base_url).rstrip("/"),
+            default_model=values.get("MMO_DEFAULT_MODEL", cls.default_model),
+            request_timeout_seconds=_parse_positive_float(
+                timeout_value, name="MMO_REQUEST_TIMEOUT_SECONDS"
+            ),
+            local_only=_parse_bool(local_only_value, name="MMO_LOCAL_ONLY"),
+        )
+
+
+settings = Settings.from_env()
+

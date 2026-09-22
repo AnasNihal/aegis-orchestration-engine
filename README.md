@@ -57,4 +57,4 @@ Provider-specific HTTP details stay inside provider adapters. The future orchest
 
 ## Next step
 
-The model registry and deterministic router now discover available models, preserve explicit capability metadata, enforce local-only routing, and return a selected model plus fallbacks and a routing reason. The next milestone is task state plus a bounded orchestration loop. No LLM-based routing or multi-agent execution is needed until that foundation is tested.
+The model registry and deterministic router now discover available models, preserve explicit capability metadata, enforce local-only routing, and return a selected model plus fallbacks and a routing reason. The first bounded orchestration runtime now records task state, selected models, results, errors, cancellation, and retry limits for a single response step. The next milestone is safe tool registration and execution. No LLM-based routing or multi-agent execution is needed until that foundation is tested.

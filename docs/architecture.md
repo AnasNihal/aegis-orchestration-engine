@@ -14,6 +14,8 @@ The adapter reports discovered model identity, availability, local status, and c
 
 The deterministic router filters by availability, enabled status, local-only scope, provider, and required capabilities. It uses a configured preferred model only after those checks pass, then returns stable fallbacks. There is no LLM-based routing yet.
 
+The first orchestration runtime creates immutable task state, transitions it through planning and execution, invokes the selected provider through `ModelGateway`, and stops after a bounded retry count. The current runtime intentionally supports one response step; tools and multi-step plans will be introduced as separate execution policies.
+
 ## Reliability policy
 
 Every provider call is bounded by the configured timeout. Transport failures become `ProviderError` instances, and server-side 5xx responses are marked retryable. The retry policy belongs to the future orchestrator, not to the provider adapter.

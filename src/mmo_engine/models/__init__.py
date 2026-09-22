@@ -11,6 +11,7 @@ from .base import (
     UsageMetadata,
 )
 from .ollama import OllamaProvider
+from .gateway import ModelGateway, ModelGatewayError
 from .registry import ModelRegistry, ModelRegistryError
 from .router import DeterministicModelRouter, RouteDecision, RoutingError, RoutingRequest
 
@@ -21,6 +22,8 @@ __all__ = [
     "ModelInfo",
     "ModelProvider",
     "OllamaProvider",
+    "ModelGateway",
+    "ModelGatewayError",
     "ModelRegistry",
     "ModelRegistryError",
     "ProviderError",

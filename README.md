@@ -13,6 +13,8 @@ This is a new project with its own repository and architecture. The first milest
 - Installed model discovery reads capabilities reported by Ollama's `/api/show` endpoint; unknown capabilities remain empty.
 - No model is downloaded automatically.
 - Unit tests use mocked HTTP responses and do not require Ollama to be running.
+- Tool definitions are centrally registered, schema-validated, allowlisted, timeout-bounded, and permission-aware.
+- Initial tools are calculator, local time, word count, and approved-root text reading.
 
 ## Local setup
 
@@ -42,6 +44,7 @@ The daemon must be running only for live inference. Tests remain offline and moc
 | `MMO_DEFAULT_MODEL` | `qwen2.5:7b` | Initial model candidate |
 | `MMO_REQUEST_TIMEOUT_SECONDS` | `60` | Per-request timeout |
 | `MMO_LOCAL_ONLY` | `true` | Keeps the first milestone local-only |
+| `MMO_APPROVED_FILE_ROOTS` | empty | OS-separated roots allowed for text reads |
 
 ## Architecture direction
 
@@ -57,4 +60,4 @@ Provider-specific HTTP details stay inside provider adapters. The future orchest
 
 ## Next step
 
-The model registry and deterministic router now discover available models, preserve explicit capability metadata, enforce local-only routing, and return a selected model plus fallbacks and a routing reason. The first bounded orchestration runtime now records task state, selected models, results, errors, cancellation, and retry limits for a single response step. The next milestone is safe tool registration and execution. No LLM-based routing or multi-agent execution is needed until that foundation is tested.
+The model registry and deterministic router now discover available models, preserve explicit capability metadata, enforce local-only routing, and return a selected model plus fallbacks and a routing reason. The first bounded orchestration runtime now records task state, selected models, results, errors, cancellation, and retry limits for a single response step. The tool layer is ready to connect to a future model tool-call loop as a separate execution policy. No LLM-based routing or multi-agent execution is needed until that foundation is tested.

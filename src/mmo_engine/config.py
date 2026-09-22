@@ -44,6 +44,7 @@ class Settings:
     default_model: str = "qwen2.5:7b"
     request_timeout_seconds: float = 60.0
     local_only: bool = True
+    approved_file_roots: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         parsed = urlparse(self.ollama_base_url)
@@ -61,6 +62,11 @@ class Settings:
         values = os.environ if environ is None else environ
         timeout_value = values.get("MMO_REQUEST_TIMEOUT_SECONDS", "60")
         local_only_value = values.get("MMO_LOCAL_ONLY", "true")
+        roots = tuple(
+            root.strip()
+            for root in values.get("MMO_APPROVED_FILE_ROOTS", "").split(os.pathsep)
+            if root.strip()
+        )
         return cls(
             ollama_base_url=values.get("MMO_OLLAMA_BASE_URL", cls.ollama_base_url).rstrip("/"),
             default_model=values.get("MMO_DEFAULT_MODEL", cls.default_model),
@@ -68,8 +74,8 @@ class Settings:
                 timeout_value, name="MMO_REQUEST_TIMEOUT_SECONDS"
             ),
             local_only=_parse_bool(local_only_value, name="MMO_LOCAL_ONLY"),
+            approved_file_roots=roots,
         )
 
 
 settings = Settings.from_env()
-

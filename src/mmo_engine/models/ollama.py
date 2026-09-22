@@ -82,7 +82,7 @@ class OllamaProvider:
             ) from exc
 
     def list_models(self) -> list[ModelInfo]:
-        """Discover locally available models without assuming capabilities."""
+        """Discover local models and use Ollama's reported capabilities."""
 
         payload = self._request("/api/tags")
         models = payload.get("models", [])
@@ -92,17 +92,31 @@ class OllamaProvider:
         for item in models:
             if not isinstance(item, dict) or not isinstance(item.get("name"), str):
                 continue
+            model_id = item["name"]
+            metadata = {
+                key: item[key] for key in ("digest", "size", "modified_at") if key in item
+            }
+            capabilities: frozenset[str] = frozenset()
+            try:
+                details = self._request("/api/show", payload={"name": model_id})
+                reported = details.get("capabilities", [])
+                if isinstance(reported, list) and all(isinstance(value, str) for value in reported):
+                    capabilities = frozenset(reported)
+                model_details = details.get("details")
+                if isinstance(model_details, dict):
+                    metadata["details"] = model_details
+            except ProviderError:
+                # Discovery remains useful if a provider version does not expose
+                # /api/show. Unknown capabilities remain unknown and empty.
+                metadata["capabilities_unverified"] = True
             result.append(
                 ModelInfo(
-                    model_id=item["name"],
+                    model_id=model_id,
                     provider=self.name,
                     local=True,
                     available=True,
-                    metadata={
-                        key: item[key]
-                        for key in ("digest", "size", "modified_at")
-                        if key in item
-                    },
+                    capabilities=capabilities,
+                    metadata=metadata,
                 )
             )
         return result
@@ -158,4 +172,3 @@ class OllamaProvider:
             usage=usage,
             raw=response,
         )
-

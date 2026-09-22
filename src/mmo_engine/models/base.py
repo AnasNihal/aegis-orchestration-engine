@@ -78,6 +78,7 @@ class ModelInfo:
     provider: str
     local: bool
     available: bool
+    enabled: bool = True
     capabilities: frozenset[str] = field(default_factory=frozenset)
     context_window: int | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)

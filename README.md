@@ -10,7 +10,7 @@ This is a new project with its own repository and architecture. The first milest
 - Environment-backed local configuration in `src/mmo_engine/config.py`.
 - Ollama HTTP adapter in `src/mmo_engine/models/ollama.py`.
 - Provider errors are normalized and marked retryable where appropriate.
-- Installed model discovery does not infer capabilities from model names.
+- Installed model discovery reads capabilities reported by Ollama's `/api/show` endpoint; unknown capabilities remain empty.
 - No model is downloaded automatically.
 - Unit tests use mocked HTTP responses and do not require Ollama to be running.
 
@@ -57,5 +57,4 @@ Provider-specific HTTP details stay inside provider adapters. The future orchest
 
 ## Next step
 
-Add a small model registry and deterministic router that discovers available Ollama models, accepts explicit capability metadata, and returns a selected model plus a routing reason. No LLM-based routing or multi-agent execution is needed until that foundation is tested.
-
+The model registry and deterministic router now discover available models, preserve explicit capability metadata, enforce local-only routing, and return a selected model plus fallbacks and a routing reason. The next milestone is task state plus a bounded orchestration loop. No LLM-based routing or multi-agent execution is needed until that foundation is tested.

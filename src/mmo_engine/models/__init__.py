@@ -11,6 +11,8 @@ from .base import (
     UsageMetadata,
 )
 from .ollama import OllamaProvider
+from .registry import ModelRegistry, ModelRegistryError
+from .router import DeterministicModelRouter, RouteDecision, RoutingError, RoutingRequest
 
 __all__ = [
     "ChatMessage",
@@ -19,8 +21,13 @@ __all__ = [
     "ModelInfo",
     "ModelProvider",
     "OllamaProvider",
+    "ModelRegistry",
+    "ModelRegistryError",
     "ProviderError",
+    "DeterministicModelRouter",
+    "RouteDecision",
+    "RoutingError",
+    "RoutingRequest",
     "ToolCall",
     "UsageMetadata",
 ]
-

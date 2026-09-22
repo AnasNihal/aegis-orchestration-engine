@@ -6,11 +6,13 @@
 
 `mmo_engine.models.base` defines the provider-neutral contracts. These types are the seam between the orchestration engine and inference providers.
 
-`mmo_engine.models.ollama` owns Ollama HTTP paths, payload conversion, response parsing, and provider error normalization. No future orchestrator module should build an Ollama request directly.
+`mmo_engine.models.ollama` owns Ollama HTTP paths, payload conversion, response parsing, capability discovery, and provider error normalization. No future orchestrator module should build an Ollama request directly.
 
 ## Capability policy
 
-The first adapter reports discovered model identity, availability, and local status. It leaves `capabilities` empty because model names are not proof of tool-calling, structured-output, reasoning, or vision support. Capability metadata will be added by explicit registry configuration and provider checks in the next milestone.
+The adapter reports discovered model identity, availability, local status, and capabilities returned by Ollama's model inspection endpoint. If inspection is unavailable, capabilities remain empty. Model names are never used as capability evidence. The registry can apply additional explicit configuration without overwriting provider metadata accidentally.
+
+The deterministic router filters by availability, enabled status, local-only scope, provider, and required capabilities. It uses a configured preferred model only after those checks pass, then returns stable fallbacks. There is no LLM-based routing yet.
 
 ## Reliability policy
 
@@ -19,4 +21,3 @@ Every provider call is bounded by the configured timeout. Transport failures bec
 ## Security policy
 
 The initial provider accepts only a configured HTTP(S) endpoint and never logs request content, headers, or response bodies. There is no shell execution, file mutation, hosted provider, or automatic model download in this milestone.
-

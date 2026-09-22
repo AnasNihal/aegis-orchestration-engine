@@ -56,6 +56,25 @@ def test_list_models_discovers_models_without_inventing_capabilities() -> None:
     assert opener.captured[0][0].full_url.endswith("/api/tags")
 
 
+def test_list_models_uses_capabilities_reported_by_ollama() -> None:
+    captured: list[Any] = []
+
+    def opener(request, timeout):
+        captured.append((request, timeout))
+        if request.full_url.endswith("/api/tags"):
+            return FakeResponse({"models": [{"name": "qwen2.5:7b"}]})
+        return FakeResponse({"capabilities": ["completion", "tools"], "details": {"family": "qwen2"}})
+
+    models = OllamaProvider(Settings(), opener=opener).list_models()
+
+    assert models[0].capabilities == frozenset({"completion", "tools"})
+    assert models[0].metadata["details"] == {"family": "qwen2"}
+    assert [request.full_url for request, _ in captured] == [
+        "http://127.0.0.1:11434/api/tags",
+        "http://127.0.0.1:11434/api/show",
+    ]
+
+
 def test_ollama_adapter_implements_provider_contract() -> None:
     provider = OllamaProvider(Settings(), opener=fake_opener({"models": []}))
 

@@ -11,9 +11,17 @@ from mmo_engine.models import (
     ModelInfo,
     ModelRegistry,
     ProviderError,
+    ToolCall,
 )
 from mmo_engine.orchestration import Orchestrator, OrchestratorConfig
 from mmo_engine.tasks import InMemoryTaskStateStore, TaskStateError, TaskStatus
+from mmo_engine.tools import (
+    PermissionClass,
+    ToolDefinition,
+    ToolExecutor,
+    ToolRegistry,
+    build_builtin_registry,
+)
 
 
 @dataclass
@@ -21,6 +29,7 @@ class FakeProvider:
     name: str = "fake"
     calls: int = 0
     failures_before_success: int = 0
+    issue_tool_call: bool = False
 
     def list_models(self) -> list[ModelInfo]:
         return []
@@ -29,10 +38,22 @@ class FakeProvider:
         self.calls += 1
         if self.calls <= self.failures_before_success:
             raise ProviderError("temporary provider failure", provider=self.name, retryable=True)
+        if self.issue_tool_call and self.calls == 1:
+            return ChatResponse(
+                model=request.model,
+                content="",
+                tool_calls=(ToolCall(name="calculator", arguments={"expression": "2 + 2"}),),
+            )
         return ChatResponse(model=request.model, content="completed locally")
 
 
-def build_orchestrator(provider: FakeProvider, *, max_retries: int = 1):
+def build_orchestrator(
+    provider: FakeProvider,
+    *,
+    max_retries: int = 1,
+    tool_executor: ToolExecutor | None = None,
+    max_tool_iterations: int = 3,
+):
     registry = ModelRegistry()
     registry.register(
         ModelInfo(
@@ -40,7 +61,7 @@ def build_orchestrator(provider: FakeProvider, *, max_retries: int = 1):
             provider="fake",
             local=True,
             available=True,
-            capabilities=frozenset({"completion"}),
+            capabilities=frozenset({"completion", "tools"}),
         )
     )
     gateway = ModelGateway([provider])
@@ -49,7 +70,8 @@ def build_orchestrator(provider: FakeProvider, *, max_retries: int = 1):
         gateway,
         router,
         provider_settings=Settings(local_only=True),
-        config=OrchestratorConfig(max_retries=max_retries),
+        config=OrchestratorConfig(max_retries=max_retries, max_tool_iterations=max_tool_iterations),
+        tool_executor=tool_executor,
     )
 
 
@@ -98,6 +120,46 @@ def test_orchestrator_supports_cancellation_before_inference() -> None:
     assert state.status is TaskStatus.CANCELLED
     assert state.cancellation_requested is True
     assert provider.calls == 0
+
+
+def test_orchestrator_executes_explicit_tool_and_continues() -> None:
+    provider = FakeProvider(issue_tool_call=True)
+    executor = ToolExecutor(build_builtin_registry())
+    orchestrator = build_orchestrator(provider, tool_executor=executor)
+
+    state = orchestrator.run("Calculate 2 + 2", tool_names=("calculator",))
+
+    assert state.status is TaskStatus.COMPLETED
+    assert state.final_output == "completed locally"
+    assert [result.step for result in state.results] == ["tool:calculator", "generate_response"]
+    assert state.results[0].output == '{"value": 4}'
+    assert provider.calls == 2
+
+
+def test_orchestrator_pauses_for_confirmation() -> None:
+    provider = FakeProvider(issue_tool_call=True)
+    registry = ToolRegistry()
+    registry.register(
+        ToolDefinition(
+            name="calculator",
+            description="A confirmation test tool.",
+            input_schema={
+                "type": "object",
+                "properties": {"expression": {"type": "string"}},
+                "required": ["expression"],
+                "additionalProperties": False,
+            },
+            handler=lambda expression: "done",
+            permission=PermissionClass.CONFIRMATION_REQUIRED,
+        )
+    )
+    orchestrator = build_orchestrator(provider, tool_executor=ToolExecutor(registry))
+
+    state = orchestrator.run("Run the confirmation tool", tool_names=("calculator",))
+
+    assert state.status is TaskStatus.WAITING_FOR_CONFIRMATION
+    assert state.current_step == "confirm:calculator"
+    assert provider.calls == 1
 
 
 def test_task_state_rejects_invalid_transition_and_unknown_save() -> None:

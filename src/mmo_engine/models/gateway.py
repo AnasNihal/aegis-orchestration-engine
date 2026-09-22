@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from mmo_engine.models.base import ChatRequest, ChatResponse, ModelInfo, ModelProvider
+from mmo_engine.models.base import ChatRequest, ChatResponse, ModelInfo, ModelProvider, ProviderError
 from mmo_engine.models.registry import ModelRegistry, ModelRegistryError
 
 
-class ModelGatewayError(LookupError):
+class ModelGatewayError(ProviderError):
     """Raised when a provider cannot be selected for a model."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, provider="gateway")
 
 
 class ModelGateway:
@@ -41,4 +44,3 @@ class ModelGateway:
         if request.model != model.model_id:
             raise ModelGatewayError("chat request model does not match routed model")
         return self.get(model.provider).chat(request)
-

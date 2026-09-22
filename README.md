@@ -2,7 +2,7 @@
 
 A model-agnostic, local-first foundation for coordinating models, agents, tools, and reliable task execution.
 
-This is a new project with its own repository and architecture. The first milestone intentionally contains only the provider boundary, configuration, and a local Ollama adapter. Orchestration, routing, task state, tools, agents, and evaluation will be added incrementally behind these contracts.
+This project has its own repository and architecture. It is being built incrementally behind stable contracts so that providers, routing, task state, tools, agents, and evaluation remain independently testable.
 
 ## Current milestone
 
@@ -15,6 +15,7 @@ This is a new project with its own repository and architecture. The first milest
 - Unit tests use mocked HTTP responses and do not require Ollama to be running.
 - Tool definitions are centrally registered, schema-validated, allowlisted, timeout-bounded, and permission-aware.
 - Initial tools are calculator, local time, word count, and approved-root text reading.
+- The orchestrator can expose an explicit tool subset, execute bounded tool-call loops, and pause for confirmation.
 
 ## Local setup
 
@@ -60,4 +61,4 @@ Provider-specific HTTP details stay inside provider adapters. The future orchest
 
 ## Next step
 
-The model registry and deterministic router now discover available models, preserve explicit capability metadata, enforce local-only routing, and return a selected model plus fallbacks and a routing reason. The first bounded orchestration runtime now records task state, selected models, results, errors, cancellation, and retry limits for a single response step. The tool layer is ready to connect to a future model tool-call loop as a separate execution policy. No LLM-based routing or multi-agent execution is needed until that foundation is tested.
+The model registry and deterministic router discover available models, preserve explicit capability metadata, enforce local-only routing, and return a selected model plus fallbacks and a routing reason. The bounded orchestration runtime records task state, selected models, results, errors, cancellation, retries, and tool iterations. No LLM-based routing or multi-agent execution is needed until this foundation is tested further.

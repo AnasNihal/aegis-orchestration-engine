@@ -19,25 +19,35 @@ Role = Literal["system", "user", "assistant", "tool"]
 
 
 @dataclass(frozen=True)
-class ChatMessage:
-    role: Role
-    content: str
-    name: str | None = None
-
-    def as_dict(self) -> dict[str, str]:
-        message = {"role": self.role, "content": self.content}
-        if self.name:
-            message["name"] = self.name
-        return message
-
-
-@dataclass(frozen=True)
 class ToolCall:
     """A provider-normalized request for a registered tool."""
 
     name: str
     arguments: Mapping[str, Any] = field(default_factory=dict)
     call_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    role: Role
+    content: str
+    name: str | None = None
+    tool_calls: Sequence[ToolCall] = field(default_factory=tuple)
+
+    def as_dict(self) -> dict[str, Any]:
+        message: dict[str, Any] = {"role": self.role, "content": self.content}
+        if self.name:
+            message["name"] = self.name
+        if self.tool_calls:
+            message["tool_calls"] = [
+                {
+                    **({"id": call.call_id} if call.call_id else {}),
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": dict(call.arguments)},
+                }
+                for call in self.tool_calls
+            ]
+        return message
 
 
 @dataclass(frozen=True)

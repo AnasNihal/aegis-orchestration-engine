@@ -14,7 +14,7 @@ The adapter reports discovered model identity, availability, local status, and c
 
 The deterministic router filters by availability, enabled status, local-only scope, provider, and required capabilities. It uses a configured preferred model only after those checks pass, then returns stable fallbacks. There is no LLM-based routing yet.
 
-The first orchestration runtime creates immutable task state, transitions it through planning and execution, invokes the selected provider through `ModelGateway`, and stops after a bounded retry count. The current runtime intentionally supports one response step; tools and multi-step plans will be introduced as separate execution policies.
+The orchestration runtime creates immutable task state, transitions it through planning and execution, invokes the selected provider through `ModelGateway`, and stops after bounded retry and tool-iteration counts. Tool exposure is explicit per task, and confirmation-required tools transition the task to `waiting_for_confirmation` rather than executing silently.
 
 The tool layer is independent of the model adapter. `ToolRegistry` stores descriptions, JSON input schemas, handlers, permissions, and timeouts. `ToolExecutor` applies the task allowlist, validates arguments, requires confirmation for sensitive definitions, and returns structured results. The initial file reader requires an explicit approved root and enforces a size limit. There is no arbitrary shell tool.
 

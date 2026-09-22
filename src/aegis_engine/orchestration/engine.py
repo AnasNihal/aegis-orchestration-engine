@@ -12,12 +12,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import json
 
-from mmo_engine.config import Settings, settings
-from mmo_engine.models.base import ChatMessage, ChatRequest, ProviderError
-from mmo_engine.models.gateway import ModelGateway
-from mmo_engine.models.router import DeterministicModelRouter, RoutingRequest
-from mmo_engine.tasks.state import InMemoryTaskStateStore, TaskResult, TaskState, TaskStatus
-from mmo_engine.tools.executor import ToolExecutor, ToolResult
+from aegis_engine.config import Settings, settings
+from aegis_engine.models.base import ChatMessage, ChatRequest, ProviderError
+from aegis_engine.models.gateway import ModelGateway
+from aegis_engine.models.router import DeterministicModelRouter, RoutingRequest
+from aegis_engine.tasks.state import InMemoryTaskStateStore, TaskResult, TaskState, TaskStatus
+from aegis_engine.tools.executor import ToolExecutor, ToolResult
 
 
 @dataclass(frozen=True)

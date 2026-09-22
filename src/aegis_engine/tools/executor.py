@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Callable, Mapping
 
-from mmo_engine.models.base import ToolCall
-from mmo_engine.tools.registry import (
+from aegis_engine.models.base import ToolCall
+from aegis_engine.tools.registry import (
     PermissionClass,
     ToolDefinition,
     ToolRegistry,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from mmo_engine.models.base import ModelInfo, ModelProvider
+from aegis_engine.models.base import ModelInfo, ModelProvider
 
 
 class ModelRegistryError(ValueError):

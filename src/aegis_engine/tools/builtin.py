@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 from typing import Any, Callable
 
-from mmo_engine.tools.registry import PermissionClass, ToolDefinition, ToolRegistry
+from aegis_engine.tools.registry import PermissionClass, ToolDefinition, ToolRegistry
 
 
 def calculator(expression: str) -> dict[str, int | float]:

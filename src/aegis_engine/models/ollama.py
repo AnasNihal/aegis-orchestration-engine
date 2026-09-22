@@ -12,8 +12,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
-from mmo_engine.config import Settings, settings
-from mmo_engine.models.base import (
+from aegis_engine.config import Settings, settings
+from aegis_engine.models.base import (
     ChatRequest,
     ChatResponse,
     ModelInfo,

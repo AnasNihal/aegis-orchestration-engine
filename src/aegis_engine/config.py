@@ -60,20 +60,20 @@ class Settings:
         """Build settings from environment variables without reading secrets."""
 
         values = os.environ if environ is None else environ
-        timeout_value = values.get("MMO_REQUEST_TIMEOUT_SECONDS", "60")
-        local_only_value = values.get("MMO_LOCAL_ONLY", "true")
+        timeout_value = values.get("AEGIS_REQUEST_TIMEOUT_SECONDS", "60")
+        local_only_value = values.get("AEGIS_LOCAL_ONLY", "true")
         roots = tuple(
             root.strip()
-            for root in values.get("MMO_APPROVED_FILE_ROOTS", "").split(os.pathsep)
+            for root in values.get("AEGIS_APPROVED_FILE_ROOTS", "").split(os.pathsep)
             if root.strip()
         )
         return cls(
-            ollama_base_url=values.get("MMO_OLLAMA_BASE_URL", cls.ollama_base_url).rstrip("/"),
-            default_model=values.get("MMO_DEFAULT_MODEL", cls.default_model),
+            ollama_base_url=values.get("AEGIS_OLLAMA_BASE_URL", cls.ollama_base_url).rstrip("/"),
+            default_model=values.get("AEGIS_DEFAULT_MODEL", cls.default_model),
             request_timeout_seconds=_parse_positive_float(
-                timeout_value, name="MMO_REQUEST_TIMEOUT_SECONDS"
+                timeout_value, name="AEGIS_REQUEST_TIMEOUT_SECONDS"
             ),
-            local_only=_parse_bool(local_only_value, name="MMO_LOCAL_ONLY"),
+            local_only=_parse_bool(local_only_value, name="AEGIS_LOCAL_ONLY"),
             approved_file_roots=roots,
         )
 

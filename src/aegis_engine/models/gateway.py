@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from mmo_engine.models.base import ChatRequest, ChatResponse, ModelInfo, ModelProvider, ProviderError
-from mmo_engine.models.registry import ModelRegistry, ModelRegistryError
+from aegis_engine.models.base import ChatRequest, ChatResponse, ModelInfo, ModelProvider, ProviderError
+from aegis_engine.models.registry import ModelRegistry, ModelRegistryError
 
 
 class ModelGatewayError(ProviderError):

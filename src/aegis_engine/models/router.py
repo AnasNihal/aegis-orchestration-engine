@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from mmo_engine.models.base import ModelInfo
-from mmo_engine.models.registry import ModelRegistry
+from aegis_engine.models.base import ModelInfo
+from aegis_engine.models.registry import ModelRegistry
 
 
 class RoutingError(LookupError):

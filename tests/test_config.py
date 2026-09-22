@@ -1,6 +1,6 @@
 import pytest
 
-from mmo_engine.config import ConfigurationError, Settings
+from aegis_engine.config import ConfigurationError, Settings
 
 
 def test_settings_defaults_are_local_and_explicit() -> None:
@@ -14,10 +14,10 @@ def test_settings_defaults_are_local_and_explicit() -> None:
 def test_settings_can_be_loaded_from_environment_mapping() -> None:
     configured = Settings.from_env(
         {
-            "MMO_OLLAMA_BASE_URL": "http://localhost:11434/",
-            "MMO_DEFAULT_MODEL": "deepseek-r1:8b",
-            "MMO_REQUEST_TIMEOUT_SECONDS": "12.5",
-            "MMO_LOCAL_ONLY": "yes",
+            "AEGIS_OLLAMA_BASE_URL": "http://localhost:11434/",
+            "AEGIS_DEFAULT_MODEL": "deepseek-r1:8b",
+            "AEGIS_REQUEST_TIMEOUT_SECONDS": "12.5",
+            "AEGIS_LOCAL_ONLY": "yes",
         }
     )
 
@@ -30,9 +30,9 @@ def test_settings_can_be_loaded_from_environment_mapping() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("MMO_OLLAMA_BASE_URL", "not-a-url"),
-        ("MMO_REQUEST_TIMEOUT_SECONDS", "0"),
-        ("MMO_LOCAL_ONLY", "sometimes"),
+        ("AEGIS_OLLAMA_BASE_URL", "not-a-url"),
+        ("AEGIS_REQUEST_TIMEOUT_SECONDS", "0"),
+        ("AEGIS_LOCAL_ONLY", "sometimes"),
     ],
 )
 def test_invalid_environment_values_are_rejected(field: str, value: str) -> None:

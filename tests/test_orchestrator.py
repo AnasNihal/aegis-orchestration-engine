@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from mmo_engine.config import Settings
-from mmo_engine.models import (
+from aegis_engine.config import Settings
+from aegis_engine.models import (
     ChatRequest,
     ChatResponse,
     DeterministicModelRouter,
@@ -13,9 +13,9 @@ from mmo_engine.models import (
     ProviderError,
     ToolCall,
 )
-from mmo_engine.orchestration import Orchestrator, OrchestratorConfig
-from mmo_engine.tasks import InMemoryTaskStateStore, TaskStateError, TaskStatus
-from mmo_engine.tools import (
+from aegis_engine.orchestration import Orchestrator, OrchestratorConfig
+from aegis_engine.tasks import InMemoryTaskStateStore, TaskStateError, TaskStatus
+from aegis_engine.tools import (
     PermissionClass,
     ToolDefinition,
     ToolExecutor,

@@ -1,4 +1,4 @@
-# Multi-Model Orchestration Engine
+# Aegis Orchestration Engine
 
 A model-agnostic, local-first foundation for coordinating models, agents, tools, and reliable task execution.
 
@@ -6,9 +6,9 @@ This project has its own repository and architecture. It is being built incremen
 
 ## Current milestone
 
-- Typed, provider-neutral chat contracts in `src/mmo_engine/models/base.py`.
-- Environment-backed local configuration in `src/mmo_engine/config.py`.
-- Ollama HTTP adapter in `src/mmo_engine/models/ollama.py`.
+- Typed, provider-neutral chat contracts in `src/aegis_engine/models/base.py`.
+- Environment-backed local configuration in `src/aegis_engine/config.py`.
+- Ollama HTTP adapter in `src/aegis_engine/models/ollama.py`.
 - Provider errors are normalized and marked retryable where appropriate.
 - Installed model discovery reads capabilities reported by Ollama's `/api/show` endpoint; unknown capabilities remain empty.
 - No model is downloaded automatically.
@@ -41,11 +41,11 @@ The daemon must be running only for live inference. Tests remain offline and moc
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MMO_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama HTTP endpoint |
-| `MMO_DEFAULT_MODEL` | `qwen2.5:7b` | Initial model candidate |
-| `MMO_REQUEST_TIMEOUT_SECONDS` | `60` | Per-request timeout |
-| `MMO_LOCAL_ONLY` | `true` | Keeps the first milestone local-only |
-| `MMO_APPROVED_FILE_ROOTS` | empty | OS-separated roots allowed for text reads |
+| `AEGIS_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama HTTP endpoint |
+| `AEGIS_DEFAULT_MODEL` | `qwen2.5:7b` | Initial model candidate |
+| `AEGIS_REQUEST_TIMEOUT_SECONDS` | `60` | Per-request timeout |
+| `AEGIS_LOCAL_ONLY` | `true` | Keeps the first milestone local-only |
+| `AEGIS_APPROVED_FILE_ROOTS` | empty | OS-separated roots allowed for text reads |
 
 ## Architecture direction
 

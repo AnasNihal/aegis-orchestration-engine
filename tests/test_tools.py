@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from mmo_engine.models import ToolCall
-from mmo_engine.tools import (
+from aegis_engine.models import ToolCall
+from aegis_engine.tools import (
     PermissionClass,
     ToolDefinition,
     ToolExecutor,

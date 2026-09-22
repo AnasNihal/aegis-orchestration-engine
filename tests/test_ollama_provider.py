@@ -4,8 +4,8 @@ from urllib.error import URLError
 
 import pytest
 
-from mmo_engine.config import Settings
-from mmo_engine.models import ChatMessage, ChatRequest, ModelProvider, OllamaProvider, ProviderError
+from aegis_engine.config import Settings
+from aegis_engine.models import ChatMessage, ChatRequest, ModelProvider, OllamaProvider, ProviderError
 
 
 class FakeResponse:

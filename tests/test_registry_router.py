@@ -1,6 +1,6 @@
 import pytest
 
-from mmo_engine.models import (
+from aegis_engine.models import (
     DeterministicModelRouter,
     ModelInfo,
     ModelRegistry,

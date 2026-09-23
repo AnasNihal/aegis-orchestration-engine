@@ -45,6 +45,9 @@ class Settings:
     request_timeout_seconds: float = 60.0
     local_only: bool = True
     approved_file_roots: tuple[str, ...] = ()
+    laya_enabled: bool = False
+    laya_model: str | None = None
+    laya_preload: bool = False
 
     def __post_init__(self) -> None:
         parsed = urlparse(self.ollama_base_url)
@@ -54,6 +57,8 @@ class Settings:
             raise ConfigurationError("default_model must not be empty")
         if self.request_timeout_seconds <= 0:
             raise ConfigurationError("request_timeout_seconds must be greater than zero")
+        if self.laya_model is not None and not self.laya_model.strip():
+            raise ConfigurationError("laya_model must not be empty when provided")
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "Settings":
@@ -62,6 +67,8 @@ class Settings:
         values = os.environ if environ is None else environ
         timeout_value = values.get("AEGIS_REQUEST_TIMEOUT_SECONDS", "60")
         local_only_value = values.get("AEGIS_LOCAL_ONLY", "true")
+        laya_enabled_value = values.get("AEGIS_LAYA_ENABLED", "false")
+        laya_preload_value = values.get("AEGIS_LAYA_PRELOAD", "false")
         roots = tuple(
             root.strip()
             for root in values.get("AEGIS_APPROVED_FILE_ROOTS", "").split(os.pathsep)
@@ -75,6 +82,9 @@ class Settings:
             ),
             local_only=_parse_bool(local_only_value, name="AEGIS_LOCAL_ONLY"),
             approved_file_roots=roots,
+            laya_enabled=_parse_bool(laya_enabled_value, name="AEGIS_LAYA_ENABLED"),
+            laya_model=values.get("AEGIS_LAYA_MODEL") or None,
+            laya_preload=_parse_bool(laya_preload_value, name="AEGIS_LAYA_PRELOAD"),
         )
 
 

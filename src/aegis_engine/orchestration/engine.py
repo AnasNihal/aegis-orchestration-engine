@@ -13,6 +13,12 @@ from dataclasses import dataclass
 import json
 
 from aegis_engine.config import Settings, settings
+from aegis_engine.decisions import (
+    DecisionProvider,
+    DecisionProviderError,
+    LayaDecisionEngine,
+    LayaTaskUnderstanding,
+)
 from aegis_engine.models.base import ChatMessage, ChatRequest, ProviderError
 from aegis_engine.models.gateway import ModelGateway
 from aegis_engine.models.router import DeterministicModelRouter, RoutingRequest
@@ -44,6 +50,7 @@ class Orchestrator:
         provider_settings: Settings | None = None,
         config: OrchestratorConfig | None = None,
         tool_executor: ToolExecutor | None = None,
+        decision_provider: DecisionProvider | None = None,
     ) -> None:
         self.gateway = gateway
         self.router = router
@@ -51,6 +58,12 @@ class Orchestrator:
         self.settings = provider_settings or settings
         self.config = config or OrchestratorConfig()
         self.tool_executor = tool_executor
+        self.decision_provider = decision_provider
+        if self.decision_provider is None and self.settings.laya_enabled:
+            self.decision_provider = LayaDecisionEngine(
+                model=self.settings.laya_model,
+                preload=self.settings.laya_preload,
+            )
 
     def run(
         self,
@@ -67,6 +80,31 @@ class Orchestrator:
         state = self._save(state.transition(TaskStatus.PLANNING, phase="routing"))
         if tool_names and self.tool_executor is None:
             return self._fail(state, "Tool execution is not configured for this task")
+        understanding_completed = False
+        if self.decision_provider is not None:
+            state = self._save(state.with_updates(phase="task_understanding"))
+            try:
+                understanding = LayaTaskUnderstanding(self.decision_provider).analyze(user_request)
+                state = self._save(
+                    state.with_updates(
+                        results=(
+                            *state.results,
+                            TaskResult(
+                                step="understand_request",
+                                success=True,
+                                output=json.dumps(understanding.decisions, default=str),
+                                model=f"{understanding.provider}/{understanding.model}",
+                            ),
+                        )
+                    )
+                )
+                understanding_completed = True
+            except DecisionProviderError as exc:
+                # Understanding is advisory in this milestone. A missing or
+                # failed optional Laya installation must not disable Ollama.
+                state = self._save(
+                    state.with_updates(errors=(*state.errors, f"task understanding: {exc}"))
+                )
         try:
             tool_schemas = (
                 self.tool_executor.registry.provider_schemas(set(tool_names))
@@ -123,7 +161,10 @@ class Orchestrator:
                 return self._save(
                     state.with_updates(
                         current_step=None,
-                        completed_steps=("generate_response",),
+                        completed_steps=(
+                            *(("understand_request",) if understanding_completed else ()),
+                            "generate_response",
+                        ),
                         results=(*state.results, result),
                         final_output=response.content,
                     ).transition(TaskStatus.COMPLETED, phase="complete")

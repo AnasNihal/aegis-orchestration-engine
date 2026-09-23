@@ -16,6 +16,7 @@ This project has its own repository and architecture. It is being built incremen
 - Tool definitions are centrally registered, schema-validated, allowlisted, timeout-bounded, and permission-aware.
 - Initial tools are calculator, local time, word count, and approved-root text reading.
 - The orchestrator can expose an explicit tool subset, execute bounded tool-call loops, and pause for confirmation.
+- Optional Laya integration provides typed task understanding without replacing the generative Ollama path.
 
 ## Local setup
 
@@ -46,6 +47,32 @@ The daemon must be running only for live inference. Tests remain offline and moc
 | `AEGIS_REQUEST_TIMEOUT_SECONDS` | `60` | Per-request timeout |
 | `AEGIS_LOCAL_ONLY` | `true` | Keeps the first milestone local-only |
 | `AEGIS_APPROVED_FILE_ROOTS` | empty | OS-separated roots allowed for text reads |
+| `AEGIS_LAYA_ENABLED` | `false` | Enables optional Laya task understanding |
+| `AEGIS_LAYA_MODEL` | empty | Optional Laya checkpoint name; the orchestrator uses `typed-decisions` for routing questions |
+| `AEGIS_LAYA_PRELOAD` | `false` | Eagerly loads Laya checkpoints; leave disabled to load on first decision |
+
+## Optional Laya decision engine
+
+[Laya](https://github.com/NandhaKishorM/laya) is a typed-decision engine, not a chat model. It can classify a request's domain and difficulty and estimate whether tools or sensitive handling are needed. Aegis keeps final natural-language generation in Ollama and treats Laya's output as advisory until it has been evaluated on project-specific examples.
+
+The dependency is optional because it brings PyTorch, Transformers, and model checkpoints. The core project does not download it or any checkpoint automatically:
+
+```bash
+uv sync --extra laya
+export AEGIS_LAYA_ENABLED=true
+```
+
+The first decision may download a Laya checkpoint from Hugging Face. `AEGIS_LAYA_PRELOAD=true` makes that download happen during provider construction and is therefore not enabled by default. Do not enable it on a memory-constrained machine without checking the available RAM first.
+
+For direct use with an injected provider:
+
+```python
+from aegis_engine.decisions import LayaDecisionEngine
+
+decision_engine = LayaDecisionEngine()
+```
+
+Laya does not replace `qwen2.5:7b` or `deepseek-r1:8b`; those remain the local generative models used by the model gateway.
 
 ## Architecture direction
 

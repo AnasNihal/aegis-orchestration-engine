@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import pytest
 
 from aegis_engine.config import Settings
+from aegis_engine.decisions import DecisionRequest, DecisionResponse
 from aegis_engine.models import (
     ChatRequest,
     ChatResponse,
@@ -47,12 +48,27 @@ class FakeProvider:
         return ChatResponse(model=request.model, content="completed locally")
 
 
+@dataclass
+class FakeDecisionProvider:
+    name: str = "fake-decision"
+    calls: int = 0
+
+    def predict(self, request: DecisionRequest) -> DecisionResponse:
+        self.calls += 1
+        return DecisionResponse(
+            provider=self.name,
+            model=request.model or "fake-decision-model",
+            decisions={"domain": {"label": "general"}},
+        )
+
+
 def build_orchestrator(
     provider: FakeProvider,
     *,
     max_retries: int = 1,
     tool_executor: ToolExecutor | None = None,
     max_tool_iterations: int = 3,
+    decision_provider: FakeDecisionProvider | None = None,
 ):
     registry = ModelRegistry()
     registry.register(
@@ -72,6 +88,7 @@ def build_orchestrator(
         provider_settings=Settings(local_only=True),
         config=OrchestratorConfig(max_retries=max_retries, max_tool_iterations=max_tool_iterations),
         tool_executor=tool_executor,
+        decision_provider=decision_provider,
     )
 
 
@@ -97,6 +114,20 @@ def test_orchestrator_retries_only_bounded_retryable_failures() -> None:
     assert state.status is TaskStatus.COMPLETED
     assert state.retry_count == 1
     assert provider.calls == 2
+
+
+def test_orchestrator_records_optional_task_understanding_before_generation() -> None:
+    provider = FakeProvider()
+    decision_provider = FakeDecisionProvider()
+    orchestrator = build_orchestrator(provider, decision_provider=decision_provider)
+
+    state = orchestrator.run("Explain this Python code")
+
+    assert state.status is TaskStatus.COMPLETED
+    assert state.completed_steps == ("understand_request", "generate_response")
+    assert [result.step for result in state.results] == ["understand_request", "generate_response"]
+    assert state.results[0].model == "fake-decision/typed-decisions"
+    assert decision_provider.calls == 1
 
 
 def test_orchestrator_stops_after_retry_limit() -> None:

@@ -84,7 +84,10 @@ class Orchestrator:
         if self.decision_provider is not None:
             state = self._save(state.with_updates(phase="task_understanding"))
             try:
-                understanding = LayaTaskUnderstanding(self.decision_provider).analyze(user_request)
+                understanding = LayaTaskUnderstanding(
+                    self.decision_provider,
+                    model=self.settings.laya_model,
+                ).analyze(user_request)
                 state = self._save(
                     state.with_updates(
                         results=(

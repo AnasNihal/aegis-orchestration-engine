@@ -42,8 +42,9 @@ ROUTING_QUESTIONS = {
 class LayaTaskUnderstanding:
     """Use a decision provider for advisory request classification."""
 
-    def __init__(self, provider: DecisionProvider) -> None:
+    def __init__(self, provider: DecisionProvider, *, model: str | None = None) -> None:
         self.provider = provider
+        self.model = model
 
     def analyze(self, user_request: str) -> DecisionResponse:
         if not user_request.strip():
@@ -52,6 +53,6 @@ class LayaTaskUnderstanding:
             DecisionRequest(
                 state={"request": user_request},
                 questions=ROUTING_QUESTIONS,
-                model="typed-decisions",
+                model=self.model,
             )
         )

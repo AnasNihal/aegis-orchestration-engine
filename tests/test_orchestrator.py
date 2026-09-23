@@ -126,7 +126,7 @@ def test_orchestrator_records_optional_task_understanding_before_generation() ->
     assert state.status is TaskStatus.COMPLETED
     assert state.completed_steps == ("understand_request", "generate_response")
     assert [result.step for result in state.results] == ["understand_request", "generate_response"]
-    assert state.results[0].model == "fake-decision/typed-decisions"
+    assert state.results[0].model == "fake-decision/fake-decision-model"
     assert decision_provider.calls == 1
 
 

@@ -40,6 +40,17 @@ ollama serve
 
 The daemon must be running only for live inference. Tests remain offline and mocked.
 
+## Run a local task
+
+After setup, the `aegis` command discovers the models installed in Ollama and runs one bounded orchestration task:
+
+```bash
+ollama serve
+uv run aegis "Explain what this project currently supports" --verbose
+```
+
+Laya task understanding is used only when `AEGIS_LAYA_ENABLED=true`. Use `--no-laya` to disable it for one request. Use `--model deepseek-r1:8b` or another model shown by `ollama list` to change the preferred local generator.
+
 ## Configuration
 
 | Variable | Default | Purpose |

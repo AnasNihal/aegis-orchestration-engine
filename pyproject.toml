@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.scripts]
+aegis = "aegis_engine.cli:main"
+
 [project.optional-dependencies]
 laya = ["laya>=0.3.6,<0.4"]
 

@@ -42,7 +42,7 @@ ROUTING_QUESTIONS = {
 class LayaTaskUnderstanding:
     """Use a decision provider for advisory request classification."""
 
-    def __init__(self, provider: DecisionProvider, *, model: str | None = None) -> None:
+    def __init__(self, provider: DecisionProvider, *, model: str | None = "typed-decisions") -> None:
         self.provider = provider
         self.model = model
 

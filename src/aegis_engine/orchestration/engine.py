@@ -86,7 +86,7 @@ class Orchestrator:
             try:
                 understanding = LayaTaskUnderstanding(
                     self.decision_provider,
-                    model=self.settings.laya_model,
+                    model=self.settings.laya_model or "typed-decisions",
                 ).analyze(user_request)
                 state = self._save(
                     state.with_updates(

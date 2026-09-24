@@ -119,7 +119,7 @@ async function sendMessage() {
     while (true) {
       const chunk = await reader.read();
       buffer += decoder.decode(chunk.value || new Uint8Array(), {stream: !chunk.done});
-      const lines = buffer.split('\n');
+      const lines = buffer.split('\\n');
       buffer = lines.pop();
       for (const line of lines) {
         if (!line.trim()) continue;

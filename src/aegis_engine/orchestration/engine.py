@@ -24,6 +24,7 @@ from aegis_engine.models.gateway import ModelGateway
 from aegis_engine.models.router import DeterministicModelRouter, RoutingRequest
 from aegis_engine.tasks.state import InMemoryTaskStateStore, TaskResult, TaskState, TaskStatus
 from aegis_engine.tools.executor import ToolExecutor, ToolResult
+from aegis_engine.verification import verify_task
 
 
 @dataclass(frozen=True)
@@ -166,17 +167,19 @@ class Orchestrator:
                     output=response.content,
                     model=f"{model.provider}/{model.model_id}",
                 )
-                return self._save(
-                    state.with_updates(
-                        current_step=None,
-                        completed_steps=(
-                            *(("understand_request",) if understanding_completed else ()),
-                            "generate_response",
-                        ),
-                        results=(*state.results, result),
-                        final_output=response.content,
-                    ).transition(TaskStatus.COMPLETED, phase="complete")
-                )
+                candidate = state.with_updates(
+                    current_step=None,
+                    completed_steps=(
+                        *(("understand_request",) if understanding_completed else ()),
+                        "generate_response",
+                    ),
+                    results=(*state.results, result),
+                    final_output=response.content,
+                ).transition(TaskStatus.COMPLETED, phase="complete")
+                report = verify_task(candidate)
+                if not report.verified:
+                    return self._fail(state, "Task verification failed: " + "; ".join(report.issues))
+                return self._save(candidate)
             if self.tool_executor is None:
                 return self._fail(state, "Model requested tools but tool execution is not configured")
             messages.append(

@@ -105,13 +105,43 @@ async function sendMessage() {
   prompt.value = '';
   send.disabled = true;
   status.textContent = 'Aegis is thinking...';
+  let assistantNode = null;
+  let assistantText = '';
   try {
     const response = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({model: model.value, message, history: priorHistory})});
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Request failed');
-    addMessage('assistant', data.output);
-    history.push({role: 'assistant', content: data.output});
-    status.textContent = 'Completed with ' + data.models.join(', ');
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Request failed');
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value || new Uint8Array(), {stream: !chunk.done});
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.type === 'token') {
+          if (!assistantNode) {
+            assistantNode = document.createElement('div');
+            assistantNode.className = 'message assistant';
+            messages.appendChild(assistantNode);
+          }
+          assistantText += event.content;
+          assistantNode.textContent = assistantText;
+          messages.scrollTop = messages.scrollHeight;
+        } else if (event.type === 'complete') {
+          history.push({role: 'assistant', content: assistantText});
+          status.textContent = 'Completed with ' + event.models.join(', ');
+        } else if (event.type === 'error') {
+          throw new Error(event.error || 'Request failed');
+        }
+      }
+      if (chunk.done) break;
+    }
   } catch (error) {
     addMessage('assistant', 'Error: ' + error.message);
     status.textContent = 'Request failed';
@@ -194,6 +224,7 @@ def create_server(config: Settings, *, host: str = "127.0.0.1", port: int = 8765
             if urlparse(self.path).path != "/api/chat":
                 self._send_json({"error": "not found"}, 404)
                 return
+            stream_started = False
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length <= 0 or length > MAX_BODY_BYTES:
@@ -210,22 +241,46 @@ def create_server(config: Settings, *, host: str = "127.0.0.1", port: int = 8765
                 if not isinstance(model_id, str) or not model_id.strip():
                     raise ValueError("model is required")
                 history = parse_history(payload.get("history"))
-                task = orchestrator.run(message, model_id=model_id, conversation=history)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                stream_started = True
+
+                def emit(event: Mapping[str, Any]) -> None:
+                    self.wfile.write(json.dumps(event, default=str).encode("utf-8") + b"\n")
+                    self.wfile.flush()
+
+                task = orchestrator.run(
+                    message,
+                    model_id=model_id,
+                    conversation=history,
+                    on_token=lambda token: emit({"type": "token", "content": token}),
+                )
                 if task.status is not TaskStatus.COMPLETED:
-                    self._send_json({"error": task.errors[-1] if task.errors else str(task.status)}, 502)
+                    emit({"type": "error", "error": task.errors[-1] if task.errors else str(task.status)})
                     return
-                self._send_json(
+                emit(
                     {
+                        "type": "complete",
                         "task_id": task.task_id,
                         "status": task.status,
-                        "output": task.final_output or "",
                         "models": list(task.selected_models),
                     }
                 )
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
-                self._send_json({"error": str(exc)}, 400)
+                if stream_started:
+                    self.wfile.write(json.dumps({"type": "error", "error": str(exc)}).encode("utf-8") + b"\n")
+                    self.wfile.flush()
+                else:
+                    self._send_json({"error": str(exc)}, 400)
             except Exception as exc:
-                self._send_json({"error": str(exc)}, 500)
+                if stream_started:
+                    self.wfile.write(json.dumps({"type": "error", "error": str(exc)}).encode("utf-8") + b"\n")
+                    self.wfile.flush()
+                else:
+                    self._send_json({"error": str(exc)}, 500)
 
         def log_message(self, format: str, *args: object) -> None:
             return

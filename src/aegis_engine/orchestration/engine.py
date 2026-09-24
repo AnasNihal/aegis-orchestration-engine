@@ -19,7 +19,7 @@ from aegis_engine.decisions import (
     LayaDecisionEngine,
     LayaTaskUnderstanding,
 )
-from aegis_engine.models.base import ChatMessage, ChatRequest, ProviderError
+from aegis_engine.models.base import ChatMessage, ChatRequest, ChatResponse, ProviderError
 from aegis_engine.models.gateway import ModelGateway
 from aegis_engine.models.router import DeterministicModelRouter, RoutingRequest
 from aegis_engine.tasks.state import InMemoryTaskStateStore, TaskResult, TaskState, TaskStatus
@@ -74,6 +74,7 @@ class Orchestrator:
         tool_names: tuple[str, ...] = (),
         model_id: str | None = None,
         conversation: Sequence[ChatMessage] = (),
+        on_token: Callable[[str], None] | None = None,
     ) -> TaskState:
         state = self.store.create(user_request, task_id=task_id)
         if is_cancelled and is_cancelled():
@@ -152,6 +153,7 @@ class Orchestrator:
                 model=model,
                 messages=messages,
                 tools=tool_schemas,
+                on_token=on_token,
             )
             if response is None:
                 return state
@@ -206,14 +208,15 @@ class Orchestrator:
                 )
         return self._fail(state, "Tool iteration limit reached")
 
-    def _chat_with_retries(self, state: TaskState, *, model, messages, tools):
+    def _chat_with_retries(self, state: TaskState, *, model, messages, tools, on_token=None):
         attempts = 0
         while True:
             try:
-                response = self.gateway.chat(
-                    model,
-                    ChatRequest(model=model.model_id, messages=tuple(messages), tools=tuple(tools)),
-                )
+                request = ChatRequest(model=model.model_id, messages=tuple(messages), tools=tuple(tools))
+                if on_token is not None and not tools:
+                    response = self._stream_response(model, request, on_token)
+                else:
+                    response = self.gateway.chat(model, request)
                 return response, state
             except ProviderError as exc:
                 attempts += 1
@@ -226,6 +229,19 @@ class Orchestrator:
                 )
                 if not will_retry:
                     return None, self._fail(state, str(exc))
+
+    def _stream_response(self, model, request: ChatRequest, on_token: Callable[[str], None]) -> ChatResponse:
+        parts: list[str] = []
+        usage = None
+        streamed_model = model.model_id
+        for chunk in self.gateway.chat_stream(model, request):
+            streamed_model = chunk.model
+            if chunk.content:
+                parts.append(chunk.content)
+                on_token(chunk.content)
+            if chunk.usage is not None:
+                usage = chunk.usage
+        return ChatResponse(model=streamed_model, content="".join(parts), usage=usage)
 
     def _record_tool_result(self, state: TaskState, result: ToolResult, *, model: str) -> TaskState:
         output = json.dumps(result.output, default=str) if result.success else ""

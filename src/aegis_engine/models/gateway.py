@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 
-from aegis_engine.models.base import ChatRequest, ChatResponse, ModelInfo, ModelProvider, ProviderError
+from aegis_engine.models.base import ChatRequest, ChatResponse, ChatStreamChunk, ModelInfo, ModelProvider, ProviderError
 from aegis_engine.models.registry import ModelRegistry, ModelRegistryError
 
 
@@ -44,3 +44,13 @@ class ModelGateway:
         if request.model != model.model_id:
             raise ModelGatewayError("chat request model does not match routed model")
         return self.get(model.provider).chat(request)
+
+    def chat_stream(self, model: ModelInfo, request: ChatRequest) -> Iterator[ChatStreamChunk]:
+        """Stream a response when the selected provider supports it."""
+
+        if request.model != model.model_id:
+            raise ModelGatewayError("chat request model does not match routed model")
+        stream_chat = getattr(self.get(model.provider), "chat_stream", None)
+        if not callable(stream_chat):
+            raise ModelGatewayError(f"provider does not support streaming: {model.provider}")
+        return stream_chat(request)

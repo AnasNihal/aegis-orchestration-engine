@@ -76,6 +76,16 @@ class ChatResponse:
 
 
 @dataclass(frozen=True)
+class ChatStreamChunk:
+    """One incremental piece of a provider response."""
+
+    model: str
+    content: str = ""
+    done: bool = False
+    usage: UsageMetadata | None = None
+
+
+@dataclass(frozen=True)
 class ModelInfo:
     """Model metadata discovered from or supplied to a provider.
 

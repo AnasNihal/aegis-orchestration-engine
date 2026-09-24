@@ -23,6 +23,22 @@ class FakeResponse:
         return self._body
 
 
+class FakeStreamResponse:
+    status = 200
+
+    def __init__(self, chunks: list[dict[str, Any]]) -> None:
+        self._chunks = chunks
+
+    def __enter__(self) -> "FakeStreamResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def __iter__(self):
+        return iter(json.dumps(chunk).encode("utf-8") + b"\n" for chunk in self._chunks)
+
+
 def fake_opener(payload: dict[str, Any], status: int = 200):
     captured: list[Any] = []
 
@@ -117,6 +133,37 @@ def test_chat_converts_request_and_tool_calls() -> None:
     assert response.tool_calls[0].arguments == {"x": 2}
     assert response.usage is not None
     assert response.usage.total_duration_ns is None
+
+
+def test_chat_stream_yields_incremental_content_and_usage() -> None:
+    captured: list[Any] = []
+
+    def opener(request, timeout):
+        captured.append((request, timeout))
+        return FakeStreamResponse(
+            [
+                {"model": "qwen2.5:7b", "message": {"content": "hello "}, "done": False},
+                {
+                    "model": "qwen2.5:7b",
+                    "message": {"content": "world"},
+                    "done": True,
+                    "eval_count": 2,
+                    "total_duration": 123,
+                },
+            ]
+        )
+
+    chunks = list(
+        OllamaProvider(Settings(), opener=opener).chat_stream(
+            ChatRequest(model="qwen2.5:7b", messages=(ChatMessage(role="user", content="hi"),))
+        )
+    )
+
+    assert [chunk.content for chunk in chunks] == ["hello ", "world"]
+    assert chunks[-1].done is True
+    assert chunks[-1].usage is not None
+    sent_payload = json.loads(captured[0][0].data.decode("utf-8"))
+    assert sent_payload["stream"] is True
 
 
 def test_provider_surfaces_http_failures_as_provider_errors() -> None:

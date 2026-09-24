@@ -7,6 +7,7 @@ the engine depends only on the contracts in ``models.base``.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
@@ -16,6 +17,7 @@ from aegis_engine.config import Settings, settings
 from aegis_engine.models.base import (
     ChatRequest,
     ChatResponse,
+    ChatStreamChunk,
     ModelInfo,
     ProviderError,
     ToolCall,
@@ -172,3 +174,65 @@ class OllamaProvider:
             usage=usage,
             raw=response,
         )
+
+    def chat_stream(self, request: ChatRequest) -> Iterator[ChatStreamChunk]:
+        """Yield incremental text chunks from Ollama's NDJSON chat stream."""
+
+        if not request.model.strip():
+            raise ProviderError("A model identifier is required", provider=self.name)
+        payload: dict[str, Any] = {
+            "model": request.model,
+            "messages": [message.as_dict() for message in request.messages],
+            "stream": True,
+            "options": {"temperature": request.temperature},
+        }
+        if request.max_tokens is not None:
+            payload["options"]["num_predict"] = request.max_tokens
+        data = json.dumps(payload).encode("utf-8")
+        request_obj = Request(
+            self._url("/api/chat"),
+            data=data,
+            headers={"Accept": "application/x-ndjson", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with self._opener(request_obj, timeout=self.settings.request_timeout_seconds) as response:
+                status = getattr(response, "status", 200)
+                if status >= 400:
+                    raise ProviderError(
+                        f"Ollama returned HTTP {status}", provider=self.name, retryable=status >= 500
+                    )
+                for line in response:
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                        raise ProviderError("Ollama returned invalid streaming JSON", provider=self.name) from exc
+                    if not isinstance(chunk, dict):
+                        raise ProviderError("Ollama returned an invalid streaming chunk", provider=self.name)
+                    message = chunk.get("message")
+                    content = message.get("content", "") if isinstance(message, dict) else ""
+                    usage = UsageMetadata(
+                        prompt_tokens=chunk.get("prompt_eval_count"),
+                        completion_tokens=chunk.get("eval_count"),
+                        total_duration_ns=chunk.get("total_duration"),
+                    ) if chunk.get("done") else None
+                    yield ChatStreamChunk(
+                        model=str(chunk.get("model", request.model)),
+                        content=content if isinstance(content, str) else "",
+                        done=bool(chunk.get("done")),
+                        usage=usage,
+                    )
+        except ProviderError:
+            raise
+        except HTTPError as exc:
+            raise ProviderError(
+                f"Ollama returned HTTP {exc.code}", provider=self.name, retryable=exc.code >= 500
+            ) from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise ProviderError(
+                "Ollama is unavailable; start the local Ollama service and try again",
+                provider=self.name,
+                retryable=True,
+            ) from exc

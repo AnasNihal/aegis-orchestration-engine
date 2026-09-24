@@ -26,6 +26,8 @@ The tool layer is independent of the model adapter. `ToolRegistry` stores descri
 
 `storage.sqlite` implements the task state store with a small versioned schema and JSON columns for immutable collections. The CLI and browser interface use the configured SQLite path; tests can continue to inject the in-memory store. Task state is deliberately separate from conversation context, long-term memory, and evaluation records.
 
+`memory.sqlite` implements explicit note storage with title/content search and deletion. The orchestrator does not automatically save every conversation, and semantic/vector retrieval is intentionally not included until it provides a measurable benefit.
+
 ## Agent boundary
 
 `agents.runtime` exposes explicit coding, analysis, and research profiles over the shared model gateway. An agent receives only its assigned task and context, has a declared capability boundary and input limit, performs one bounded inference, and returns an `AgentResult`. Agents cannot spawn other agents or execute tools in this milestone.

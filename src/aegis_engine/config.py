@@ -58,6 +58,7 @@ class Settings:
     local_only: bool = True
     approved_file_roots: tuple[str, ...] = ()
     task_db_path: str = ".aegis/tasks.sqlite3"
+    memory_db_path: str = ".aegis/memory.sqlite3"
     laya_enabled: bool = False
     laya_model: str | None = None
     laya_preload: bool = False
@@ -76,6 +77,8 @@ class Settings:
             raise ConfigurationError("ollama_keep_alive must not be empty")
         if not self.task_db_path.strip():
             raise ConfigurationError("task_db_path must not be empty")
+        if not self.memory_db_path.strip():
+            raise ConfigurationError("memory_db_path must not be empty")
         if self.laya_model is not None and not self.laya_model.strip():
             raise ConfigurationError("laya_model must not be empty when provided")
 
@@ -107,6 +110,7 @@ class Settings:
             local_only=_parse_bool(local_only_value, name="AEGIS_LOCAL_ONLY"),
             approved_file_roots=roots,
             task_db_path=values.get("AEGIS_TASK_DB_PATH", cls.task_db_path),
+            memory_db_path=values.get("AEGIS_MEMORY_DB_PATH", cls.memory_db_path),
             laya_enabled=_parse_bool(laya_enabled_value, name="AEGIS_LAYA_ENABLED"),
             laya_model=values.get("AEGIS_LAYA_MODEL") or None,
             laya_preload=_parse_bool(laya_preload_value, name="AEGIS_LAYA_PRELOAD"),

@@ -83,6 +83,7 @@ Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser. The page lo
 | `AEGIS_LOCAL_ONLY` | `true` | Keeps the first milestone local-only |
 | `AEGIS_APPROVED_FILE_ROOTS` | empty | OS-separated roots allowed for text reads |
 | `AEGIS_TASK_DB_PATH` | `.aegis/tasks.sqlite3` | Local SQLite task-state database |
+| `AEGIS_MEMORY_DB_PATH` | `.aegis/memory.sqlite3` | Local SQLite notes database |
 | `AEGIS_LAYA_ENABLED` | `false` | Enables optional Laya task understanding |
 | `AEGIS_LAYA_MODEL` | empty | Optional Laya checkpoint name; the orchestrator uses `typed-decisions` for routing questions |
 | `AEGIS_LAYA_PRELOAD` | `false` | Eagerly loads Laya checkpoints; leave disabled to load on first decision |
@@ -142,7 +143,7 @@ Use a task-specific scoring function before making quality claims. The runner do
 
 ## Persistence and data handling
 
-Task state is stored separately from conversation context, long-term memory, and evaluation data. The SQLite store contains execution metadata, plans, results, errors, selected models, and final output. It supports retrieval, recent-task listing, and explicit deletion. Do not place secrets or credentials in prompts or approved file roots.
+Task state is stored separately from conversation context, long-term memory, and evaluation data. The task SQLite store contains execution metadata, plans, results, errors, selected models, and final output. The separate memory SQLite store contains only notes explicitly saved through its CRUD API; it supports search and deletion. Do not place secrets or credentials in prompts or approved file roots.
 
 ## Current boundaries and next steps
 

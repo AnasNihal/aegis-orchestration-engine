@@ -22,6 +22,18 @@ When enabled, the runtime records Laya's typed request-understanding result as a
 
 The tool layer is independent of the model adapter. `ToolRegistry` stores descriptions, JSON input schemas, handlers, permissions, and timeouts. `ToolExecutor` applies the task allowlist, validates arguments, requires confirmation for sensitive definitions, and returns structured results. The initial file reader requires an explicit approved root and enforces a size limit. There is no arbitrary shell tool.
 
+## Persistence
+
+`storage.sqlite` implements the task state store with a small versioned schema and JSON columns for immutable collections. The CLI and browser interface use the configured SQLite path; tests can continue to inject the in-memory store. Task state is deliberately separate from conversation context, long-term memory, and evaluation records.
+
+## Agent boundary
+
+`agents.runtime` exposes explicit coding, analysis, and research profiles over the shared model gateway. An agent receives only its assigned task and context, has a declared capability boundary and input limit, performs one bounded inference, and returns an `AgentResult`. Agents cannot spawn other agents or execute tools in this milestone.
+
+## Verification and evaluation
+
+`verification.checks` validates completion from recorded application evidence, not from model claims. `verification.errors` maps provider and execution failures into stable categories. `evaluation.benchmark` runs repeatable cases against selected models and records latency, success, output score, tool-call validity, and token usage when the provider reports it.
+
 ## Reliability policy
 
 Every provider call is bounded by the configured timeout. Transport failures become `ProviderError` instances, and server-side 5xx responses are marked retryable. The retry policy belongs to the future orchestrator, not to the provider adapter.

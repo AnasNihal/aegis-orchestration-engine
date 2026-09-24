@@ -17,6 +17,10 @@ This project has its own repository and architecture. It is being built incremen
 - Initial tools are calculator, local time, word count, and approved-root text reading.
 - The orchestrator can expose an explicit tool subset, execute bounded tool-call loops, and pause for confirmation.
 - Optional Laya integration provides typed task understanding without replacing the generative Ollama path.
+- Task execution state is persisted locally in SQLite with a versioned schema.
+- A bounded runtime provides coding, analysis, and research agent profiles without recursive spawning.
+- Deterministic verification rejects empty or failed task results, and failures are classified for recovery.
+- A repeatable evaluation runner records model success, latency, quality scores, tool-call validity, and usage metadata.
 
 ## Local setup
 
@@ -57,7 +61,7 @@ For a persistent terminal session, choose a model once and ask multiple question
 uv run --no-sync aegis --interactive --model qwen2.5:7b --no-laya
 ```
 
-Type `/exit` to stop the session. Conversation memory is not persistent yet; each question is currently an independently tracked task.
+Type `/exit` to stop the session. Each question is an independently tracked task; task execution state is persisted to SQLite, while the interactive conversation context remains in the running session.
 
 For a browser-based local assistant, start the web server:
 
@@ -65,7 +69,7 @@ For a browser-based local assistant, start the web server:
 uv run --no-sync aegis --serve --host 127.0.0.1 --port 8765
 ```
 
-Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser. The page loads the installed Ollama models into a dropdown and lets you send multiple prompts. The current browser history is held in memory by the page; SQLite persistence and streaming responses are planned later.
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser. The page loads installed completion-capable Ollama models into a dropdown, streams responses, and lets you send multiple prompts. Each request is recorded in the configured SQLite task store.
 
 ## Configuration
 
@@ -78,6 +82,7 @@ Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser. The page lo
 | `AEGIS_OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps the selected model loaded |
 | `AEGIS_LOCAL_ONLY` | `true` | Keeps the first milestone local-only |
 | `AEGIS_APPROVED_FILE_ROOTS` | empty | OS-separated roots allowed for text reads |
+| `AEGIS_TASK_DB_PATH` | `.aegis/tasks.sqlite3` | Local SQLite task-state database |
 | `AEGIS_LAYA_ENABLED` | `false` | Enables optional Laya task understanding |
 | `AEGIS_LAYA_MODEL` | empty | Optional Laya checkpoint name; the orchestrator uses `typed-decisions` for routing questions |
 | `AEGIS_LAYA_PRELOAD` | `false` | Eagerly loads Laya checkpoints; leave disabled to load on first decision |
@@ -117,6 +122,30 @@ interfaces → orchestration → routing / agents / tools
 
 Provider-specific HTTP details stay inside provider adapters. The future orchestrator will consume `ModelProvider`, `ChatRequest`, and `ChatResponse` rather than importing Ollama directly.
 
-## Next step
+## Agents, verification, and evaluation
 
-The model registry and deterministic router discover available models, preserve explicit capability metadata, enforce local-only routing, and return a selected model plus fallbacks and a routing reason. The bounded orchestration runtime records task state, selected models, results, errors, cancellation, retries, and tool iterations. No LLM-based routing or multi-agent execution is needed until this foundation is tested further.
+The agent runtime in `src/aegis_engine/agents/runtime.py` contains explicit profiles rather than independent autonomous chatbots. Each profile has a system boundary, capability requirements, an input limit, and one bounded model invocation. The central orchestrator remains responsible for delegation.
+
+The verification layer in `src/aegis_engine/verification` checks application evidence: task status, final output, recorded results, and cancellation state. A model cannot mark its own operation successful. Provider and tool failures are classified into stable categories such as `transient`, `timeout`, and `permission`.
+
+The evaluation runner in `src/aegis_engine/evaluation/benchmark.py` compares discovered models with a small repeatable dataset:
+
+```python
+from aegis_engine.evaluation import BenchmarkRunner, EvaluationCase
+
+cases = [EvaluationCase("short-answer", "What is 2 + 2?")]
+summary = BenchmarkRunner(gateway, models).run(cases)
+print(summary.success_rate, summary.average_latency_ms)
+```
+
+Use a task-specific scoring function before making quality claims. The runner does not pretend that text length alone measures quality.
+
+## Persistence and data handling
+
+Task state is stored separately from conversation context, long-term memory, and evaluation data. The SQLite store contains execution metadata, plans, results, errors, selected models, and final output. It supports retrieval, recent-task listing, and explicit deletion. Do not place secrets or credentials in prompts or approved file roots.
+
+## Current boundaries and next steps
+
+Implemented: local Ollama provider, model discovery, deterministic routing, bounded orchestration, streaming browser UI, safe tools, SQLite task state, agent profiles, verification, and evaluation primitives.
+
+Not yet implemented: hosted provider adapters, full automatic tool selection, multi-step plan execution beyond bounded tool iterations, parallel agents, semantic long-term memory, and a production API/frontend. These are intentionally separate future milestones. The next recommended step is to connect task-understanding signals to explicit tool/agent selection, with end-to-end tests for each path.

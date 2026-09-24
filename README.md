@@ -21,6 +21,7 @@ This project has its own repository and architecture. It is being built incremen
 - A bounded runtime provides coding, analysis, and research agent profiles without recursive spawning.
 - Deterministic verification rejects empty or failed task results, and failures are classified for recovery.
 - A repeatable evaluation runner records model success, latency, quality scores, tool-call validity, and usage metadata.
+- A FastAPI API layer provides validated REST endpoints, OpenAPI documentation, async streaming, and structured integration points for a future frontend and authentication layer.
 
 ## Local setup
 
@@ -70,6 +71,16 @@ uv run --no-sync aegis --serve --host 127.0.0.1 --port 8765
 ```
 
 Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser. The page loads installed completion-capable Ollama models into a dropdown, streams responses, and lets you send multiple prompts. Each request is recorded in the configured SQLite task store.
+
+The API documentation is available at [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs). The main endpoints are:
+
+```text
+GET  /api/health
+GET  /api/models
+POST /api/chat
+```
+
+`POST /api/chat` accepts a selected model, a message, and validated user/assistant history. It returns newline-delimited streaming events for tokens, completion, or errors.
 
 ## Configuration
 
@@ -147,6 +158,6 @@ Task state is stored separately from conversation context, long-term memory, and
 
 ## Current boundaries and next steps
 
-Implemented: local Ollama provider, model discovery, deterministic routing, bounded orchestration, streaming browser UI, safe tools, SQLite task state, agent profiles, verification, and evaluation primitives.
+Implemented: local Ollama provider, model discovery, deterministic routing, bounded orchestration, FastAPI REST API, OpenAPI documentation, streaming browser UI, safe tools, SQLite task state, agent profiles, verification, and evaluation primitives.
 
 Not yet implemented: hosted provider adapters, full automatic tool selection, multi-step plan execution beyond bounded tool iterations, parallel agents, semantic long-term memory, and a production API/frontend. These are intentionally separate future milestones. The next recommended step is to connect task-understanding signals to explicit tool/agent selection, with end-to-end tests for each path.

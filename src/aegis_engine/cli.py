@@ -116,9 +116,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.no_laya:
             config = replace(config, laya_enabled=False)
         if args.serve:
-            from aegis_engine.web import serve
+            from aegis_engine.api import create_app
+            import uvicorn
 
-            serve(config, host=args.host, port=args.port)
+            uvicorn.run(create_app(config), host=args.host, port=args.port, log_level="info")
             return 0
         if args.interactive:
             return run_interactive(config, verbose=args.verbose)

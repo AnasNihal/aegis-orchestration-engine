@@ -28,6 +28,10 @@ The tool layer is independent of the model adapter. `ToolRegistry` stores descri
 
 `memory.sqlite` implements explicit note storage with title/content search and deletion. The orchestrator does not automatically save every conversation, and semantic/vector retrieval is intentionally not included until it provides a measurable benefit.
 
+## API boundary
+
+`api.py` is the HTTP adapter built with FastAPI. Pydantic models validate incoming chat payloads and constrain history size/content. `/api/health` and `/api/models` are typed read endpoints; `/api/chat` runs the existing orchestrator in a worker thread and streams NDJSON events without moving model or tool policy into the web layer. FastAPI's OpenAPI output is available at `/docs`.
+
 ## Agent boundary
 
 `agents.runtime` exposes explicit coding, analysis, and research profiles over the shared model gateway. An agent receives only its assigned task and context, has a declared capability boundary and input limit, performs one bounded inference, and returns an `AgentResult`. Agents cannot spawn other agents or execute tools in this milestone.

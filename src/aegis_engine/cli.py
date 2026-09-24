@@ -40,6 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Keep the session open for multiple questions.",
     )
     parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Start the local browser interface.",
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="Web server bind address.")
+    parser.add_argument("--port", type=int, default=8765, help="Web server port.")
+    parser.add_argument(
         "--no-laya",
         action="store_true",
         help="Disable optional Laya task understanding for this request.",
@@ -89,11 +96,11 @@ def run_interactive(config: Settings, *, verbose: bool = False) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if not args.interactive and not args.request:
+    if not args.interactive and not args.serve and not args.request:
         request = input("Aegis> ").strip()
     else:
         request = args.request or ""
-    if not request and not args.interactive:
+    if not request and not args.interactive and not args.serve:
         print("A request is required.", file=sys.stderr)
         return 2
 
@@ -103,6 +110,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             config = replace(config, default_model=args.model)
         if args.no_laya:
             config = replace(config, laya_enabled=False)
+        if args.serve:
+            from aegis_engine.web import serve
+
+            serve(config, host=args.host, port=args.port)
+            return 0
         if args.interactive:
             return run_interactive(config, verbose=args.verbose)
         task = build_orchestrator(config).run(request)

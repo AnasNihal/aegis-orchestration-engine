@@ -59,6 +59,14 @@ uv run --no-sync aegis --interactive --model qwen2.5:7b --no-laya
 
 Type `/exit` to stop the session. Conversation memory is not persistent yet; each question is currently an independently tracked task.
 
+For a browser-based local assistant, start the web server:
+
+```bash
+uv run --no-sync aegis --serve --host 127.0.0.1 --port 8765
+```
+
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser. The page loads the installed Ollama models into a dropdown and lets you send multiple prompts. The current browser history is held in memory by the page; SQLite persistence and streaming responses are planned later.
+
 ## Configuration
 
 | Variable | Default | Purpose |

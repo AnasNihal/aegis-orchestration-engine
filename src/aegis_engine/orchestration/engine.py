@@ -8,7 +8,7 @@ embedded in the provider adapter.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import json
 
@@ -72,6 +72,8 @@ class Orchestrator:
         task_id: str | None = None,
         is_cancelled: Callable[[], bool] | None = None,
         tool_names: tuple[str, ...] = (),
+        model_id: str | None = None,
+        conversation: Sequence[ChatMessage] = (),
     ) -> TaskState:
         state = self.store.create(user_request, task_id=task_id)
         if is_cancelled and is_cancelled():
@@ -124,6 +126,7 @@ class Orchestrator:
                 RoutingRequest(
                     required_capabilities=frozenset(required_capabilities),
                     local_only=self.settings.local_only,
+                    model_id=model_id,
                 )
             )
         except Exception as exc:
@@ -138,7 +141,7 @@ class Orchestrator:
             ).transition(TaskStatus.EXECUTING, phase="inference")
         )
 
-        messages = [ChatMessage(role="user", content=user_request)]
+        messages = [*conversation, ChatMessage(role="user", content=user_request)]
         for iteration in range(self.config.max_tool_iterations):
             if is_cancelled and is_cancelled():
                 return self._save(

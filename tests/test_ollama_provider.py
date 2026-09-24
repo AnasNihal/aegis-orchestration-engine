@@ -135,6 +135,23 @@ def test_chat_converts_request_and_tool_calls() -> None:
     assert response.usage.total_duration_ns is None
 
 
+def test_chat_sends_keep_alive_when_configured() -> None:
+    opener = fake_opener({"message": {"content": "ok"}})
+    provider = OllamaProvider(Settings(), opener=opener)
+
+    provider.chat(
+        ChatRequest(
+            model="qwen2.5:7b",
+            messages=(ChatMessage(role="user", content="hi"),),
+            max_tokens=100,
+            keep_alive="10m",
+        )
+    )
+
+    sent_payload = json.loads(opener.captured[0][0].data.decode("utf-8"))
+    assert sent_payload["keep_alive"] == "10m"
+
+
 def test_chat_stream_yields_incremental_content_and_usage() -> None:
     captured: list[Any] = []
 

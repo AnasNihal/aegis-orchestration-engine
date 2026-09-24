@@ -36,6 +36,16 @@ def _parse_positive_float(value: str, *, name: str) -> float:
     return parsed
 
 
+def _parse_positive_int(value: str, *, name: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be an integer") from exc
+    if parsed <= 0:
+        raise ConfigurationError(f"{name} must be greater than zero")
+    return parsed
+
+
 @dataclass(frozen=True)
 class Settings:
     """Validated settings used by the model gateway."""
@@ -43,6 +53,8 @@ class Settings:
     ollama_base_url: str = "http://127.0.0.1:11434"
     default_model: str = "qwen2.5:7b"
     request_timeout_seconds: float = 60.0
+    max_output_tokens: int = 1024
+    ollama_keep_alive: str = "10m"
     local_only: bool = True
     approved_file_roots: tuple[str, ...] = ()
     laya_enabled: bool = False
@@ -57,6 +69,10 @@ class Settings:
             raise ConfigurationError("default_model must not be empty")
         if self.request_timeout_seconds <= 0:
             raise ConfigurationError("request_timeout_seconds must be greater than zero")
+        if self.max_output_tokens <= 0:
+            raise ConfigurationError("max_output_tokens must be greater than zero")
+        if not self.ollama_keep_alive.strip():
+            raise ConfigurationError("ollama_keep_alive must not be empty")
         if self.laya_model is not None and not self.laya_model.strip():
             raise ConfigurationError("laya_model must not be empty when provided")
 
@@ -66,6 +82,7 @@ class Settings:
 
         values = os.environ if environ is None else environ
         timeout_value = values.get("AEGIS_REQUEST_TIMEOUT_SECONDS", "60")
+        max_output_tokens_value = values.get("AEGIS_MAX_OUTPUT_TOKENS", "1024")
         local_only_value = values.get("AEGIS_LOCAL_ONLY", "true")
         laya_enabled_value = values.get("AEGIS_LAYA_ENABLED", "false")
         laya_preload_value = values.get("AEGIS_LAYA_PRELOAD", "false")
@@ -80,6 +97,10 @@ class Settings:
             request_timeout_seconds=_parse_positive_float(
                 timeout_value, name="AEGIS_REQUEST_TIMEOUT_SECONDS"
             ),
+            max_output_tokens=_parse_positive_int(
+                max_output_tokens_value, name="AEGIS_MAX_OUTPUT_TOKENS"
+            ),
+            ollama_keep_alive=values.get("AEGIS_OLLAMA_KEEP_ALIVE", cls.ollama_keep_alive),
             local_only=_parse_bool(local_only_value, name="AEGIS_LOCAL_ONLY"),
             approved_file_roots=roots,
             laya_enabled=_parse_bool(laya_enabled_value, name="AEGIS_LAYA_ENABLED"),

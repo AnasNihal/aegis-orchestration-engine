@@ -56,6 +56,7 @@ class ChatRequest:
     messages: Sequence[ChatMessage]
     temperature: float = 0.2
     max_tokens: int | None = None
+    keep_alive: str | int | None = None
     tools: Sequence[Mapping[str, Any]] = field(default_factory=tuple)
 
 

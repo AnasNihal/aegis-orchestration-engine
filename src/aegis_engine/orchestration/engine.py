@@ -212,7 +212,13 @@ class Orchestrator:
         attempts = 0
         while True:
             try:
-                request = ChatRequest(model=model.model_id, messages=tuple(messages), tools=tuple(tools))
+                request = ChatRequest(
+                    model=model.model_id,
+                    messages=tuple(messages),
+                    max_tokens=self.settings.max_output_tokens,
+                    keep_alive=self.settings.ollama_keep_alive,
+                    tools=tuple(tools),
+                )
                 if on_token is not None and not tools:
                     response = self._stream_response(model, request, on_token)
                 else:

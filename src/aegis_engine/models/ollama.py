@@ -138,6 +138,8 @@ class OllamaProvider:
             payload["options"]["num_predict"] = request.max_tokens
         if request.tools:
             payload["tools"] = list(request.tools)
+        if request.keep_alive is not None:
+            payload["keep_alive"] = request.keep_alive
 
         response = self._request("/api/chat", payload=payload)
         message = response.get("message")
@@ -188,6 +190,8 @@ class OllamaProvider:
         }
         if request.max_tokens is not None:
             payload["options"]["num_predict"] = request.max_tokens
+        if request.keep_alive is not None:
+            payload["keep_alive"] = request.keep_alive
         data = json.dumps(payload).encode("utf-8")
         request_obj = Request(
             self._url("/api/chat"),

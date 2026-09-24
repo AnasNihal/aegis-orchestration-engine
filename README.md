@@ -74,6 +74,8 @@ Open [http://127.0.0.1:8765](http://127.0.0.1:8765) in your browser. The page lo
 | `AEGIS_OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama HTTP endpoint |
 | `AEGIS_DEFAULT_MODEL` | `qwen2.5:7b` | Initial model candidate |
 | `AEGIS_REQUEST_TIMEOUT_SECONDS` | `60` | Per-request timeout |
+| `AEGIS_MAX_OUTPUT_TOKENS` | `1024` | Maximum generated tokens per model response |
+| `AEGIS_OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps the selected model loaded |
 | `AEGIS_LOCAL_ONLY` | `true` | Keeps the first milestone local-only |
 | `AEGIS_APPROVED_FILE_ROOTS` | empty | OS-separated roots allowed for text reads |
 | `AEGIS_LAYA_ENABLED` | `false` | Enables optional Laya task understanding |

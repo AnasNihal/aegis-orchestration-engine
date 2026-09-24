@@ -16,7 +16,7 @@ from aegis_engine.models import (
     ProviderError,
 )
 from aegis_engine.orchestration import Orchestrator
-from aegis_engine.tasks import TaskStatus
+from aegis_engine.tasks import SQLiteTaskStateStore, TaskStatus
 
 
 def build_orchestrator(config: Settings) -> Orchestrator:
@@ -27,7 +27,12 @@ def build_orchestrator(config: Settings) -> Orchestrator:
     registry.refresh(provider)
     gateway = ModelGateway([provider])
     router = DeterministicModelRouter(registry, preferred_model=config.default_model)
-    return Orchestrator(gateway, router, provider_settings=config)
+    return Orchestrator(
+        gateway,
+        router,
+        provider_settings=config,
+        store=SQLiteTaskStateStore(config.task_db_path),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

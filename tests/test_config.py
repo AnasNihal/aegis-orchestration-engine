@@ -12,6 +12,7 @@ def test_settings_defaults_are_local_and_explicit() -> None:
     assert configured.max_output_tokens == 1024
     assert configured.ollama_keep_alive == "10m"
     assert configured.laya_enabled is False
+    assert configured.task_db_path == ".aegis/tasks.sqlite3"
 
 
 def test_settings_can_be_loaded_from_environment_mapping() -> None:
@@ -26,6 +27,7 @@ def test_settings_can_be_loaded_from_environment_mapping() -> None:
             "AEGIS_LAYA_ENABLED": "true",
             "AEGIS_LAYA_MODEL": "typed-decisions",
             "AEGIS_LAYA_PRELOAD": "no",
+            "AEGIS_TASK_DB_PATH": "/tmp/aegis-test.sqlite3",
         }
     )
 
@@ -38,6 +40,7 @@ def test_settings_can_be_loaded_from_environment_mapping() -> None:
     assert configured.laya_enabled is True
     assert configured.laya_model == "typed-decisions"
     assert configured.laya_preload is False
+    assert configured.task_db_path == "/tmp/aegis-test.sqlite3"
 
 
 @pytest.mark.parametrize(

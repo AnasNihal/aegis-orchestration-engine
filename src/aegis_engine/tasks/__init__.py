@@ -7,6 +7,7 @@ from .state import (
     TaskStateError,
     TaskStatus,
 )
+from aegis_engine.storage.sqlite import SQLiteTaskStateStore
 
 __all__ = [
     "InMemoryTaskStateStore",
@@ -14,5 +15,5 @@ __all__ = [
     "TaskState",
     "TaskStateError",
     "TaskStatus",
+    "SQLiteTaskStateStore",
 ]
-

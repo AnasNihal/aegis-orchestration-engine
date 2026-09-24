@@ -37,3 +37,9 @@ def test_web_page_contains_model_selector_and_chat_endpoint() -> None:
     assert 'id="model"' in INDEX_HTML
     assert "'/api/models'" in INDEX_HTML
     assert "'/api/chat'" in INDEX_HTML
+
+
+def test_web_settings_include_persistent_task_storage() -> None:
+    from aegis_engine.config import Settings
+
+    assert Settings(task_db_path="/tmp/aegis-web.sqlite3").task_db_path.endswith("aegis-web.sqlite3")

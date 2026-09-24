@@ -22,6 +22,7 @@ from aegis_engine.models import (
     OllamaProvider,
 )
 from aegis_engine.orchestration import Orchestrator
+from aegis_engine.storage import SQLiteTaskStateStore
 from aegis_engine.tasks import TaskStatus
 
 
@@ -189,7 +190,12 @@ def create_server(config: Settings, *, host: str = "127.0.0.1", port: int = 8765
     registry.refresh(provider)
     gateway = ModelGateway([provider])
     router = DeterministicModelRouter(registry, preferred_model=config.default_model)
-    orchestrator = Orchestrator(gateway, router, provider_settings=config)
+    orchestrator = Orchestrator(
+        gateway,
+        router,
+        provider_settings=config,
+        store=SQLiteTaskStateStore(config.task_db_path),
+    )
     models = tuple(model for model in registry.available() if "completion" in model.capabilities)
 
     class Handler(BaseHTTPRequestHandler):

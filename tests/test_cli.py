@@ -5,11 +5,14 @@ from aegis_engine.tasks import TaskStatus
 
 
 def test_cli_parser_accepts_request_and_runtime_options() -> None:
-    args = build_parser().parse_args(["Summarize this", "--model", "qwen2.5:7b", "--no-laya"])
+    args = build_parser().parse_args(
+        ["Summarize this", "--model", "qwen2.5:7b", "--no-laya", "--interactive"]
+    )
 
     assert args.request == "Summarize this"
     assert args.model == "qwen2.5:7b"
     assert args.no_laya is True
+    assert args.interactive is True
 
 
 @dataclass

@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("request", nargs="?", help="The task to execute.")
     parser.add_argument("--model", help="Prefer a specific installed Ollama model.")
     parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Keep the session open for multiple questions.",
+    )
+    parser.add_argument(
         "--no-laya",
         action="store_true",
         help="Disable optional Laya task understanding for this request.",
@@ -47,10 +52,48 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def run_interactive(config: Settings, *, verbose: bool = False) -> int:
+    """Run a persistent local chat session using one configured model."""
+
+    try:
+        orchestrator = build_orchestrator(config)
+    except (ConfigurationError, OSError, ProviderError, ValueError) as exc:
+        print(f"Aegis could not start: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Aegis interactive mode | model={config.default_model}")
+    print("Type /exit or /quit to stop.")
+    while True:
+        try:
+            request = input("You> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if request.lower() in {"/exit", "/quit", "exit", "quit"}:
+            return 0
+        if not request:
+            continue
+
+        task = orchestrator.run(request)
+        if task.status is TaskStatus.COMPLETED:
+            print(f"Aegis> {task.final_output or ''}")
+        else:
+            print(
+                f"Aegis task failed: {task.errors[-1] if task.errors else task.status}",
+                file=sys.stderr,
+            )
+        if verbose:
+            selected = ", ".join(task.selected_models) or "none"
+            print(f"[task={task.task_id} status={task.status} models={selected}]", file=sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    request = args.request or input("Aegis> ").strip()
-    if not request:
+    if not args.interactive and not args.request:
+        request = input("Aegis> ").strip()
+    else:
+        request = args.request or ""
+    if not request and not args.interactive:
         print("A request is required.", file=sys.stderr)
         return 2
 
@@ -60,6 +103,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             config = replace(config, default_model=args.model)
         if args.no_laya:
             config = replace(config, laya_enabled=False)
+        if args.interactive:
+            return run_interactive(config, verbose=args.verbose)
         task = build_orchestrator(config).run(request)
     except (ConfigurationError, OSError, ProviderError, ValueError) as exc:
         print(f"Aegis could not start: {exc}", file=sys.stderr)

@@ -51,6 +51,14 @@ uv run --no-sync aegis "Explain what this project currently supports" --verbose
 
 Laya task understanding is used only when `AEGIS_LAYA_ENABLED=true`. Use `--no-laya` to disable it for one request. Use `--model deepseek-r1:8b` or another model shown by `ollama list` to change the preferred local generator.
 
+For a persistent terminal session, choose a model once and ask multiple questions:
+
+```bash
+uv run --no-sync aegis --interactive --model qwen2.5:7b --no-laya
+```
+
+Type `/exit` to stop the session. Conversation memory is not persistent yet; each question is currently an independently tracked task.
+
 ## Configuration
 
 | Variable | Default | Purpose |

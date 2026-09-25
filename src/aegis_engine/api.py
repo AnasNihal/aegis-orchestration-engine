@@ -29,6 +29,7 @@ from aegis_engine.models import (
 from aegis_engine.orchestration import Orchestrator
 from aegis_engine.storage import SQLiteTaskStateStore
 from aegis_engine.tasks import TaskStatus
+from aegis_engine.tools import ToolExecutor, build_builtin_registry, select_tools
 from aegis_engine.web import INDEX_HTML
 
 
@@ -75,6 +76,7 @@ def build_runtime(config: Settings) -> tuple[Orchestrator, tuple[ModelInfo, ...]
         router,
         provider_settings=config,
         store=SQLiteTaskStateStore(config.task_db_path),
+        tool_executor=ToolExecutor(build_builtin_registry(config.approved_file_roots)),
     )
     models = tuple(model for model in registry.available() if "completion" in model.capabilities)
     return orchestrator, models
@@ -147,6 +149,7 @@ def create_app(
                         body.message,
                         model_id=body.model,
                         conversation=conversation,
+                        tool_names=select_tools(body.message),
                         on_token=emit_token,
                     )
                     if task.status is not TaskStatus.COMPLETED:

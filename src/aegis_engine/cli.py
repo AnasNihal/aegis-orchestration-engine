@@ -17,6 +17,7 @@ from aegis_engine.models import (
 )
 from aegis_engine.orchestration import Orchestrator
 from aegis_engine.tasks import SQLiteTaskStateStore, TaskStatus
+from aegis_engine.tools import ToolExecutor, build_builtin_registry, select_tools
 
 
 def build_orchestrator(config: Settings) -> Orchestrator:
@@ -32,6 +33,7 @@ def build_orchestrator(config: Settings) -> Orchestrator:
         router,
         provider_settings=config,
         store=SQLiteTaskStateStore(config.task_db_path),
+        tool_executor=ToolExecutor(build_builtin_registry(config.approved_file_roots)),
     )
 
 
@@ -86,7 +88,7 @@ def run_interactive(config: Settings, *, verbose: bool = False) -> int:
         if not request:
             continue
 
-        task = orchestrator.run(request)
+        task = orchestrator.run(request, tool_names=select_tools(request))
         if task.status is TaskStatus.COMPLETED:
             print(f"Aegis> {task.final_output or ''}")
         else:
@@ -123,7 +125,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.interactive:
             return run_interactive(config, verbose=args.verbose)
-        task = build_orchestrator(config).run(request)
+        tool_names = select_tools(request)
+        task = build_orchestrator(config).run(
+            request,
+            **({"tool_names": tool_names} if tool_names else {}),
+        )
     except (ConfigurationError, OSError, ProviderError, ValueError) as exc:
         print(f"Aegis could not start: {exc}", file=sys.stderr)
         return 1

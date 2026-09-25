@@ -28,7 +28,7 @@ from aegis_engine.models import (
 )
 from aegis_engine.orchestration import Orchestrator
 from aegis_engine.storage import SQLiteTaskStateStore
-from aegis_engine.tasks import TaskStatus
+from aegis_engine.tasks import TaskStateError, TaskStatus
 from aegis_engine.tools import ToolExecutor, build_builtin_registry, select_tools
 from aegis_engine.web import INDEX_HTML
 
@@ -61,6 +61,32 @@ class HealthResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: str
+
+
+class TaskResultResponse(BaseModel):
+    step: str
+    success: bool
+    output: str
+    model: str | None = None
+    error: str | None = None
+
+
+class TaskResponse(BaseModel):
+    task_id: str
+    user_request: str
+    status: str
+    phase: str
+    plan: list[str]
+    current_step: str | None
+    completed_steps: list[str]
+    results: list[TaskResultResponse]
+    errors: list[str]
+    retry_count: int
+    selected_models: list[str]
+    final_output: str | None
+    cancellation_requested: bool
+    created_at: str
+    updated_at: str
 
 
 def build_runtime(config: Settings) -> tuple[Orchestrator, tuple[ModelInfo, ...]]:
@@ -125,6 +151,30 @@ def create_app(
             )
             for model in available_models
         ]
+
+    @app.get("/api/tasks/{task_id}", response_model=TaskResponse, tags=["tasks"])
+    async def get_task(task_id: str) -> TaskResponse:
+        try:
+            task = orchestrator.store.get(task_id)
+        except TaskStateError as exc:
+            raise HTTPException(status_code=404, detail="task not found") from exc
+        return TaskResponse(
+            task_id=task.task_id,
+            user_request=task.user_request,
+            status=task.status.value,
+            phase=task.phase,
+            plan=list(task.plan),
+            current_step=task.current_step,
+            completed_steps=list(task.completed_steps),
+            results=[TaskResultResponse(**result.__dict__) for result in task.results],
+            errors=list(task.errors),
+            retry_count=task.retry_count,
+            selected_models=list(task.selected_models),
+            final_output=task.final_output,
+            cancellation_requested=task.cancellation_requested,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+        )
 
     @app.post(
         "/api/chat",

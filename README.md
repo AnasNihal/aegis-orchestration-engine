@@ -95,10 +95,11 @@ The API documentation is available at [http://127.0.0.1:8765/docs](http://127.0.
 ```text
 GET  /api/health
 GET  /api/models
+GET  /api/tasks/{task_id}
 POST /api/chat
 ```
 
-`POST /api/chat` accepts a selected model, a message, and validated user/assistant history. It returns newline-delimited streaming events for tokens, completion, or errors.
+`POST /api/chat` accepts a selected model, a message, and validated user/assistant history. It returns newline-delimited streaming events for tokens, completion, or errors. `GET /api/tasks/{task_id}` exposes persisted task state for progress views and future resume/confirmation workflows.
 
 ## Configuration
 

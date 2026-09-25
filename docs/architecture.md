@@ -34,7 +34,7 @@ The tool layer is independent of the model adapter. `ToolRegistry` stores descri
 
 Tool selection is currently deterministic and conservative. The request selector chooses a small safe subset from obvious phrases; the orchestrator still validates schemas, checks the task allowlist, and enforces permissions before execution. It does not grant shell access or arbitrary filesystem access.
 
-The deterministic planner records a bounded task plan before routing. It describes application-controlled phases and never turns model text into executable instructions. Full multi-step plan execution will be added only after plan transitions and recovery are covered by end-to-end tests.
+The deterministic planner records a bounded task plan before routing. It describes application-controlled phases and never turns model text into executable instructions. The API exposes persisted task state so progress, results, and errors can be inspected without coupling the frontend to internal dataclasses. Full multi-step plan execution will be added only after plan transitions and recovery are covered by end-to-end tests.
 
 ## Agent boundary
 

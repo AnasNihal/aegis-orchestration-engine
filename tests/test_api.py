@@ -25,6 +25,14 @@ class FakeOrchestrator:
         return FakeTask()
 
 
+class FakeStore:
+    def __init__(self, task):
+        self.task = task
+
+    def get(self, task_id):
+        return self.task
+
+
 def test_fastapi_exposes_typed_health_models_and_openapi() -> None:
     model = ModelInfo(
         model_id="fake-model",
@@ -70,3 +78,22 @@ def test_fastapi_rejects_unknown_model() -> None:
     response = client.post("/api/chat", json={"model": "missing", "message": "hello"})
 
     assert response.status_code == 422
+
+
+def test_fastapi_exposes_persisted_task_state() -> None:
+    from aegis_engine.tasks import TaskResult, TaskState
+
+    task = TaskState(task_id="task-api", user_request="hello").transition(TaskStatus.PLANNING)
+    task = task.with_updates(
+        plan=("generate_response",),
+        results=(TaskResult(step="generate_response", success=True, output="done"),),
+    )
+    orchestrator = FakeOrchestrator()
+    orchestrator.store = FakeStore(task)
+    client = TestClient(create_app(orchestrator=orchestrator, models=()))
+
+    response = client.get("/api/tasks/task-api")
+
+    assert response.status_code == 200
+    assert response.json()["plan"] == ["generate_response"]
+    assert response.json()["results"][0]["output"] == "done"

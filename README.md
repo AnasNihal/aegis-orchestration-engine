@@ -23,6 +23,7 @@ This project has its own repository and architecture. It is being built incremen
 - A repeatable evaluation runner records model success, latency, quality scores, tool-call validity, and usage metadata.
 - A FastAPI API layer provides validated REST endpoints, OpenAPI documentation, async streaming, and structured integration points for a future frontend and authentication layer.
 - Conservative deterministic tool selection now exposes only relevant safe tools for calculator, time/date, word counting, and approved-root file reading.
+- A bounded deterministic planner records direct-response and selected-tool phases in task state.
 
 ## Local setup
 

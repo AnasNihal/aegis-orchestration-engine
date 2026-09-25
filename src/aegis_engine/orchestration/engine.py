@@ -22,6 +22,7 @@ from aegis_engine.decisions import (
 from aegis_engine.models.base import ChatMessage, ChatRequest, ChatResponse, ProviderError
 from aegis_engine.models.gateway import ModelGateway
 from aegis_engine.models.router import DeterministicModelRouter, RoutingRequest
+from aegis_engine.orchestration.planner import DeterministicPlanner
 from aegis_engine.tasks.state import InMemoryTaskStateStore, TaskResult, TaskState, TaskStatus
 from aegis_engine.tools.executor import ToolExecutor, ToolResult
 from aegis_engine.verification import verify_task
@@ -31,12 +32,15 @@ from aegis_engine.verification import verify_task
 class OrchestratorConfig:
     max_retries: int = 1
     max_tool_iterations: int = 3
+    max_plan_steps: int = 5
 
     def __post_init__(self) -> None:
         if self.max_retries < 0:
             raise ValueError("max_retries must not be negative")
         if self.max_tool_iterations < 1:
             raise ValueError("max_tool_iterations must be positive")
+        if self.max_plan_steps < 1:
+            raise ValueError("max_plan_steps must be positive")
 
 
 class Orchestrator:
@@ -52,6 +56,7 @@ class Orchestrator:
         config: OrchestratorConfig | None = None,
         tool_executor: ToolExecutor | None = None,
         decision_provider: DecisionProvider | None = None,
+        planner: DeterministicPlanner | None = None,
     ) -> None:
         self.gateway = gateway
         self.router = router
@@ -60,6 +65,7 @@ class Orchestrator:
         self.config = config or OrchestratorConfig()
         self.tool_executor = tool_executor
         self.decision_provider = decision_provider
+        self.planner = planner or DeterministicPlanner(max_steps=self.config.max_plan_steps)
         if self.decision_provider is None and self.settings.laya_enabled:
             self.decision_provider = LayaDecisionEngine(
                 model=self.settings.laya_model,
@@ -113,13 +119,15 @@ class Orchestrator:
                     state.with_updates(errors=(*state.errors, f"task understanding: {exc}"))
                 )
         try:
+            plan = self.planner.create(user_request, tool_names=tool_names)
+            state = self._save(state.with_updates(plan=plan.steps, phase=f"planning:{plan.reason}"))
             tool_schemas = (
                 self.tool_executor.registry.provider_schemas(set(tool_names))
                 if self.tool_executor and tool_names
                 else []
             )
         except Exception as exc:
-            return self._fail(state, f"Tool selection failed: {exc}")
+            return self._fail(state, f"Planning or tool selection failed: {exc}")
         try:
             required_capabilities = {"completion"}
             if tool_names:
@@ -137,7 +145,7 @@ class Orchestrator:
         model = decision.selected
         state = self._save(
             state.with_updates(
-                plan=("generate_response",),
+                plan=state.plan,
                 current_step="generate_response",
                 selected_models=(f"{model.provider}/{model.model_id}",),
             ).transition(TaskStatus.EXECUTING, phase="inference")

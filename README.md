@@ -4,6 +4,22 @@ A model-agnostic, local-first foundation for coordinating models, agents, tools,
 
 This project has its own repository and architecture. It is being built incrementally behind stable contracts so that providers, routing, task state, tools, agents, and evaluation remain independently testable.
 
+## Git identity protection
+
+Commits must use the repository owner's GitHub identity:
+
+```text
+AnasNihal <108085694+AnasNihal@users.noreply.github.com>
+```
+
+Install the local commit guard after cloning:
+
+```bash
+sh scripts/install_git_hooks.sh
+```
+
+The hook blocks commits with a different author or committer identity. A GitHub Actions check also scans pushed commit ranges. Hooks can technically be bypassed with `--no-verify`, so protected-branch required checks should be enabled before accepting outside contributions.
+
 ## Current milestone
 
 - Typed, provider-neutral chat contracts in `src/aegis_engine/models/base.py`.

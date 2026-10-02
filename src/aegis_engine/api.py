@@ -10,7 +10,9 @@ import asyncio
 from collections.abc import Callable, Mapping
 import json
 from queue import Queue
+from threading import Event
 from typing import Any, Literal
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -96,6 +98,17 @@ class TaskResponse(BaseModel):
     updated_at: str
 
 
+class TaskAcceptedResponse(BaseModel):
+    task_id: str
+    status: Literal["pending"]
+
+
+class TaskCancellationResponse(BaseModel):
+    task_id: str
+    status: str
+    cancellation_requested: bool
+
+
 def build_runtime(config: Settings) -> tuple[Orchestrator, tuple[ModelInfo, ...]]:
     """Discover models and build the shared API runtime."""
 
@@ -133,6 +146,8 @@ def create_app(
         models = discovered_models
     available_models = tuple(models or ())
     model_ids = {model.model_id for model in available_models}
+    active_cancellations: dict[str, Event] = {}
+    background_tasks: set[asyncio.Task[Any]] = set()
     app = FastAPI(
         title="Aegis Orchestration Engine",
         version="0.1.0",
@@ -185,6 +200,67 @@ def create_app(
             cancellation_requested=task.cancellation_requested,
             created_at=task.created_at,
             updated_at=task.updated_at,
+        )
+
+    @app.post(
+        "/api/tasks",
+        response_model=TaskAcceptedResponse,
+        status_code=202,
+        tags=["tasks"],
+    )
+    async def submit_task(body: ChatRequestBody) -> TaskAcceptedResponse:
+        if model_ids and body.model not in model_ids:
+            raise HTTPException(status_code=422, detail="selected model is not available")
+        task_id = str(uuid4())
+        cancellation = Event()
+        conversation = tuple(ChatMessage(role=item.role, content=item.content) for item in body.history)
+        try:
+            orchestrator.store.create(body.message, task_id=task_id)
+        except TaskStateError as exc:
+            raise HTTPException(status_code=409, detail="task id collision") from exc
+        active_cancellations[task_id] = cancellation
+
+        def run_task() -> None:
+            try:
+                orchestrator.run(
+                    body.message,
+                    task_id=task_id,
+                    is_cancelled=cancellation.is_set,
+                    model_id=body.model,
+                    conversation=conversation,
+                    tool_names=select_tools(body.message),
+                )
+            finally:
+                active_cancellations.pop(task_id, None)
+
+        background = asyncio.create_task(asyncio.to_thread(run_task))
+        background_tasks.add(background)
+        background.add_done_callback(background_tasks.discard)
+        return TaskAcceptedResponse(task_id=task_id, status="pending")
+
+    @app.post(
+        "/api/tasks/{task_id}/cancel",
+        response_model=TaskCancellationResponse,
+        tags=["tasks"],
+    )
+    async def cancel_task(task_id: str) -> TaskCancellationResponse:
+        try:
+            task = orchestrator.store.get(task_id)
+        except TaskStateError as exc:
+            raise HTTPException(status_code=404, detail="task not found") from exc
+        if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+            return TaskCancellationResponse(
+                task_id=task_id,
+                status=task.status.value,
+                cancellation_requested=task.cancellation_requested,
+            )
+        cancellation = active_cancellations.get(task_id)
+        if cancellation is not None:
+            cancellation.set()
+        return TaskCancellationResponse(
+            task_id=task_id,
+            status=task.status.value,
+            cancellation_requested=True,
         )
 
     @app.post(

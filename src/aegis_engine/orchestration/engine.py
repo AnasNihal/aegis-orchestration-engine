@@ -30,6 +30,7 @@ from aegis_engine.tasks.state import (
     TaskStatus,
     TaskStep,
     TaskStepStatus,
+    TaskStateError,
 )
 from aegis_engine.tools.executor import ToolExecutor, ToolResult
 from aegis_engine.verification import verify_task
@@ -90,7 +91,15 @@ class Orchestrator:
         conversation: Sequence[ChatMessage] = (),
         on_token: Callable[[str], None] | None = None,
     ) -> TaskState:
-        state = self.store.create(user_request, task_id=task_id)
+        if task_id is None:
+            state = self.store.create(user_request)
+        else:
+            try:
+                state = self.store.get(task_id)
+            except TaskStateError:
+                state = self.store.create(user_request, task_id=task_id)
+            if state.status is not TaskStatus.PENDING:
+                raise TaskStateError(f"task is not pending: {task_id}")
         if is_cancelled and is_cancelled():
             return self._save(state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED))
 

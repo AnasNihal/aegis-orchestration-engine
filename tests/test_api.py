@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from aegis_engine.api import create_app
 from aegis_engine.models import ChatRequest, ChatResponse, ModelInfo
-from aegis_engine.tasks import TaskStatus
+from aegis_engine.tasks import InMemoryTaskStateStore, TaskStatus
 
 
 @dataclass
@@ -31,6 +31,23 @@ class FakeStore:
 
     def get(self, task_id):
         return self.task
+
+
+class AsyncFakeOrchestrator:
+    def __init__(self) -> None:
+        self.store = InMemoryTaskStateStore()
+
+    def run(self, request: str, *, task_id: str, is_cancelled, **kwargs):
+        task = self.store.get(task_id)
+        if is_cancelled():
+            return self.store.save(
+                task.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
+            )
+        return self.store.save(
+            task.transition(TaskStatus.PLANNING).transition(TaskStatus.EXECUTING).with_updates(
+                final_output="background complete"
+            ).transition(TaskStatus.COMPLETED)
+        )
 
 
 def test_fastapi_exposes_typed_health_models_and_openapi() -> None:
@@ -98,3 +115,17 @@ def test_fastapi_exposes_persisted_task_state() -> None:
     assert response.json()["plan"] == ["generate_response"]
     assert response.json()["steps"] == []
     assert response.json()["results"][0]["output"] == "done"
+
+
+def test_fastapi_submits_background_task_and_allows_status_polling() -> None:
+    orchestrator = AsyncFakeOrchestrator()
+    client = TestClient(create_app(orchestrator=orchestrator, models=()))
+
+    accepted = client.post("/api/tasks", json={"model": "fake-model", "message": "run this task"})
+
+    assert accepted.status_code == 202
+    task_id = accepted.json()["task_id"]
+    status = client.get(f"/api/tasks/{task_id}")
+    assert status.status_code == 200
+    assert status.json()["status"] == "completed"
+    assert status.json()["final_output"] == "background complete"

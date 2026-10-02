@@ -41,6 +41,7 @@ The hook blocks commits with a different author or committer identity. A GitHub 
 - Conservative deterministic tool selection now exposes only relevant safe tools for calculator, time/date, word counting, and approved-root file reading.
 - A bounded deterministic planner records direct-response and selected-tool phases in task state.
 - Each planned phase has a persisted checkpoint (`pending`, `active`, `completed`, `waiting`, or `failed`) so progress can be inspected safely and resumed in a later milestone.
+- A task-oriented asynchronous API accepts work immediately, returns a task ID, supports status polling, and supports cancellation requests independently of the streaming chat interface.
 
 ## Local setup
 
@@ -97,10 +98,14 @@ The API documentation is available at [http://127.0.0.1:8765/docs](http://127.0.
 GET  /api/health
 GET  /api/models
 GET  /api/tasks/{task_id}
+POST /api/tasks
+POST /api/tasks/{task_id}/cancel
 POST /api/chat
 ```
 
-`POST /api/chat` accepts a selected model, a message, and validated user/assistant history. It returns newline-delimited streaming events for tokens, completion, or errors. `GET /api/tasks/{task_id}` exposes persisted task state, including each plan checkpoint, for progress views and future resume/confirmation workflows.
+`POST /api/tasks` is the orchestration-oriented endpoint: it accepts work, returns `202 Accepted` with a task ID, and runs the bounded task in the background. Poll `GET /api/tasks/{task_id}` for plan, checkpoint, result, error, and model information. `POST /api/tasks/{task_id}/cancel` requests cancellation through the runtime's bounded cancellation checks.
+
+`POST /api/chat` remains available as a convenience streaming interface. It accepts a selected model, a message, and validated user/assistant history, then returns newline-delimited streaming events for tokens, completion, or errors.
 
 ## Configuration
 

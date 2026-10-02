@@ -96,4 +96,5 @@ def test_fastapi_exposes_persisted_task_state() -> None:
 
     assert response.status_code == 200
     assert response.json()["plan"] == ["generate_response"]
+    assert response.json()["steps"] == []
     assert response.json()["results"][0]["output"] == "done"

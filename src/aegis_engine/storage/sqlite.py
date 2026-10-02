@@ -13,7 +13,14 @@ from pathlib import Path
 import sqlite3
 from threading import RLock
 
-from aegis_engine.tasks.state import TaskResult, TaskState, TaskStateError, TaskStatus
+from aegis_engine.tasks.state import (
+    TaskResult,
+    TaskState,
+    TaskStateError,
+    TaskStatus,
+    TaskStep,
+    TaskStepStatus,
+)
 
 
 class SQLiteTaskStateStore:
@@ -51,6 +58,7 @@ class SQLiteTaskStateStore:
                     status TEXT NOT NULL,
                     phase TEXT NOT NULL,
                     plan_json TEXT NOT NULL,
+                    steps_json TEXT NOT NULL DEFAULT '[]',
                     current_step TEXT,
                     completed_steps_json TEXT NOT NULL,
                     results_json TEXT NOT NULL,
@@ -66,6 +74,10 @@ class SQLiteTaskStateStore:
             )
             if connection.execute("SELECT 1 FROM schema_version LIMIT 1").fetchone() is None:
                 connection.execute("INSERT INTO schema_version(version) VALUES (1)")
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
+            if "steps_json" not in columns:
+                connection.execute("ALTER TABLE tasks ADD COLUMN steps_json TEXT NOT NULL DEFAULT '[]'")
+            connection.execute("UPDATE schema_version SET version=2")
             connection.commit()
             if self._connection is None:
                 connection.close()
@@ -80,7 +92,12 @@ class SQLiteTaskStateStore:
             connection = self._connect()
             try:
                 connection.execute(
-                    "INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    """INSERT INTO tasks(
+                        task_id, user_request, status, phase, plan_json, steps_json,
+                        current_step, completed_steps_json, results_json, errors_json,
+                        retry_count, selected_models_json, final_output,
+                        cancellation_requested, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     _state_values(state),
                 )
                 connection.commit()
@@ -97,7 +114,7 @@ class SQLiteTaskStateStore:
             connection = self._connect()
             try:
                 cursor = connection.execute(
-                    """UPDATE tasks SET user_request=?, status=?, phase=?, plan_json=?,
+                    """UPDATE tasks SET user_request=?, status=?, phase=?, plan_json=?, steps_json=?,
                     current_step=?, completed_steps_json=?, results_json=?, errors_json=?,
                     retry_count=?, selected_models_json=?, final_output=?,
                     cancellation_requested=?, created_at=?, updated_at=? WHERE task_id=?""",
@@ -159,6 +176,7 @@ def _state_values(state: TaskState) -> tuple[object, ...]:
         state.status.value,
         state.phase,
         _json(state.plan),
+        _json([{"name": step.name, "status": step.status.value, "error": step.error} for step in state.steps]),
         state.current_step,
         _json(state.completed_steps),
         _json([asdict(result) for result in state.results]),
@@ -184,6 +202,14 @@ def _row_to_state(row: sqlite3.Row) -> TaskState:
         status=TaskStatus(row["status"]),
         phase=row["phase"],
         plan=tuple(json.loads(row["plan_json"])),
+        steps=tuple(
+            TaskStep(
+                name=item["name"],
+                status=TaskStepStatus(item["status"]),
+                error=item.get("error"),
+            )
+            for item in json.loads(row["steps_json"])
+        ),
         current_step=row["current_step"],
         completed_steps=tuple(json.loads(row["completed_steps_json"])),
         results=results,

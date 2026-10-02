@@ -71,12 +71,19 @@ class TaskResultResponse(BaseModel):
     error: str | None = None
 
 
+class TaskStepResponse(BaseModel):
+    name: str
+    status: str
+    error: str | None = None
+
+
 class TaskResponse(BaseModel):
     task_id: str
     user_request: str
     status: str
     phase: str
     plan: list[str]
+    steps: list[TaskStepResponse]
     current_step: str | None
     completed_steps: list[str]
     results: list[TaskResultResponse]
@@ -164,6 +171,10 @@ def create_app(
             status=task.status.value,
             phase=task.phase,
             plan=list(task.plan),
+            steps=[
+                TaskStepResponse(name=step.name, status=step.status.value, error=step.error)
+                for step in task.steps
+            ],
             current_step=task.current_step,
             completed_steps=list(task.completed_steps),
             results=[TaskResultResponse(**result.__dict__) for result in task.results],

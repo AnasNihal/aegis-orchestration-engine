@@ -23,7 +23,14 @@ from aegis_engine.models.base import ChatMessage, ChatRequest, ChatResponse, Pro
 from aegis_engine.models.gateway import ModelGateway
 from aegis_engine.models.router import DeterministicModelRouter, RoutingRequest
 from aegis_engine.orchestration.planner import DeterministicPlanner
-from aegis_engine.tasks.state import InMemoryTaskStateStore, TaskResult, TaskState, TaskStatus
+from aegis_engine.tasks.state import (
+    InMemoryTaskStateStore,
+    TaskResult,
+    TaskState,
+    TaskStatus,
+    TaskStep,
+    TaskStepStatus,
+)
 from aegis_engine.tools.executor import ToolExecutor, ToolResult
 from aegis_engine.verification import verify_task
 
@@ -120,7 +127,13 @@ class Orchestrator:
                 )
         try:
             plan = self.planner.create(user_request, tool_names=tool_names)
-            state = self._save(state.with_updates(plan=plan.steps, phase=f"planning:{plan.reason}"))
+            state = self._save(
+                state.with_updates(
+                    plan=plan.steps,
+                    steps=tuple(TaskStep(name=step) for step in plan.steps),
+                    phase=f"planning:{plan.reason}",
+                )
+            )
             tool_schemas = (
                 self.tool_executor.registry.provider_schemas(set(tool_names))
                 if self.tool_executor and tool_names
@@ -143,6 +156,11 @@ class Orchestrator:
             return self._fail(state, f"Model routing failed: {exc}")
 
         model = decision.selected
+        if tool_names:
+            state = self._set_step(state, 0, TaskStepStatus.COMPLETED)
+            state = self._set_step(state, 1, TaskStepStatus.ACTIVE)
+        else:
+            state = self._set_step(state, 0, TaskStepStatus.ACTIVE)
         state = self._save(
             state.with_updates(
                 plan=state.plan,
@@ -184,6 +202,7 @@ class Orchestrator:
                     results=(*state.results, result),
                     final_output=response.content,
                 ).transition(TaskStatus.COMPLETED, phase="complete")
+                candidate = self._complete_response_step(candidate, tool_names=tool_names)
                 report = verify_task(candidate)
                 if not report.verified:
                     return self._fail(state, "Task verification failed: " + "; ".join(report.issues))
@@ -198,10 +217,15 @@ class Orchestrator:
                 )
             )
             state = self._save(state.with_updates(phase=f"tool_iteration_{iteration + 1}"))
+            if tool_names and len(state.steps) > 2:
+                state = self._set_step(state, 1, TaskStepStatus.COMPLETED)
+                state = self._set_step(state, 2, TaskStepStatus.ACTIVE)
             for call in response.tool_calls:
                 result = self.tool_executor.execute_call(call, allowed_tools=set(tool_names))
                 state = self._record_tool_result(state, result, model=f"{model.provider}/{model.model_id}")
                 if result.requires_confirmation:
+                    if tool_names and len(state.steps) > 2:
+                        state = self._set_step(state, 2, TaskStepStatus.WAITING)
                     return self._save(
                         state.with_updates(current_step=f"confirm:{call.name}").transition(
                             TaskStatus.WAITING_FOR_CONFIRMATION, phase="confirmation"
@@ -218,6 +242,20 @@ class Orchestrator:
                     )
                 )
         return self._fail(state, "Tool iteration limit reached")
+
+    def _set_step(self, state: TaskState, index: int, status: TaskStepStatus) -> TaskState:
+        if index >= len(state.steps):
+            return state
+        return self._save(state.with_step_status(index, status))
+
+    def _complete_response_step(self, state: TaskState, *, tool_names: tuple[str, ...]) -> TaskState:
+        if not tool_names:
+            return self._set_step(state, 0, TaskStepStatus.COMPLETED)
+        if len(state.steps) > 2:
+            state = self._set_step(state, 2, TaskStepStatus.COMPLETED)
+        if len(state.steps) > 3:
+            state = self._set_step(state, 3, TaskStepStatus.COMPLETED)
+        return state
 
     def _chat_with_retries(self, state: TaskState, *, model, messages, tools, on_token=None):
         attempts = 0

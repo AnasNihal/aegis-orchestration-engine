@@ -20,6 +20,23 @@ class TaskStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class TaskStepStatus(StrEnum):
+    """Lifecycle state for one bounded step in a task plan."""
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    WAITING = "waiting"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class TaskStep:
+    name: str
+    status: TaskStepStatus = TaskStepStatus.PENDING
+    error: str | None = None
+
+
 class TaskStateError(ValueError):
     """Raised when a task lifecycle transition is invalid."""
 
@@ -73,6 +90,7 @@ class TaskState:
     status: TaskStatus = TaskStatus.PENDING
     phase: str = "created"
     plan: tuple[str, ...] = ()
+    steps: tuple[TaskStep, ...] = ()
     current_step: str | None = None
     completed_steps: tuple[str, ...] = ()
     results: tuple[TaskResult, ...] = ()
@@ -91,6 +109,15 @@ class TaskState:
 
     def with_updates(self, **changes: object) -> "TaskState":
         return replace(self, **changes, updated_at=_now())
+
+    def with_step_status(
+        self, index: int, status: TaskStepStatus, *, error: str | None = None
+    ) -> "TaskState":
+        if index < 0 or index >= len(self.steps):
+            raise TaskStateError(f"step index out of range: {index}")
+        steps = list(self.steps)
+        steps[index] = TaskStep(name=steps[index].name, status=status, error=error)
+        return self.with_updates(steps=tuple(steps))
 
 
 class InMemoryTaskStateStore:
@@ -123,4 +150,3 @@ class InMemoryTaskStateStore:
                 return self._states[task_id]
             except KeyError as exc:
                 raise TaskStateError(f"task does not exist: {task_id}") from exc
-

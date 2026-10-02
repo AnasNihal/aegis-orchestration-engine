@@ -102,6 +102,9 @@ def test_orchestrator_completes_and_records_selected_model() -> None:
     assert state.final_output == "completed locally"
     assert state.selected_models == ("fake/local-test-model",)
     assert state.completed_steps == ("generate_response",)
+    assert [(step.name, step.status.value) for step in state.steps] == [
+        ("generate_response", "completed")
+    ]
     assert provider.calls == 1
 
 

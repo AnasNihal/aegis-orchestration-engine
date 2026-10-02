@@ -40,6 +40,7 @@ The hook blocks commits with a different author or committer identity. A GitHub 
 - A FastAPI API layer provides validated REST endpoints, OpenAPI documentation, async streaming, and structured integration points for a future frontend and authentication layer.
 - Conservative deterministic tool selection now exposes only relevant safe tools for calculator, time/date, word counting, and approved-root file reading.
 - A bounded deterministic planner records direct-response and selected-tool phases in task state.
+- Each planned phase has a persisted checkpoint (`pending`, `active`, `completed`, `waiting`, or `failed`) so progress can be inspected safely and resumed in a later milestone.
 
 ## Local setup
 
@@ -99,7 +100,7 @@ GET  /api/tasks/{task_id}
 POST /api/chat
 ```
 
-`POST /api/chat` accepts a selected model, a message, and validated user/assistant history. It returns newline-delimited streaming events for tokens, completion, or errors. `GET /api/tasks/{task_id}` exposes persisted task state for progress views and future resume/confirmation workflows.
+`POST /api/chat` accepts a selected model, a message, and validated user/assistant history. It returns newline-delimited streaming events for tokens, completion, or errors. `GET /api/tasks/{task_id}` exposes persisted task state, including each plan checkpoint, for progress views and future resume/confirmation workflows.
 
 ## Configuration
 

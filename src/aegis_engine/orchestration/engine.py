@@ -98,12 +98,14 @@ class Orchestrator:
                 state = self.store.get(task_id)
             except TaskStateError:
                 state = self.store.create(user_request, task_id=task_id)
+            if state.user_request != user_request:
+                raise TaskStateError(f"task request does not match: {task_id}")
             if state.status is not TaskStatus.PENDING:
                 raise TaskStateError(f"task is not pending: {task_id}")
         if is_cancelled and is_cancelled():
             return self._save(state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED))
 
-        state = self._save(state.transition(TaskStatus.PLANNING, phase="routing"))
+        state = self.store.claim(state.task_id)
         if tool_names and self.tool_executor is None:
             return self._fail(state, "Tool execution is not configured for this task")
         understanding_completed = False
@@ -180,10 +182,8 @@ class Orchestrator:
 
         messages = [*conversation, ChatMessage(role="user", content=user_request)]
         for iteration in range(self.config.max_tool_iterations):
-            if is_cancelled and is_cancelled():
-                return self._save(
-                    state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
-                )
+            if self._cancelled(state, is_cancelled):
+                return self._cancel(state)
             response, state = self._chat_with_retries(
                 state,
                 model=model,
@@ -193,6 +193,8 @@ class Orchestrator:
             )
             if response is None:
                 return state
+            if self._cancelled(state, is_cancelled):
+                return self._cancel(state)
             if not response.tool_calls:
                 if not response.content:
                     return self._fail(state, "Model returned an empty response")
@@ -230,6 +232,8 @@ class Orchestrator:
                 state = self._set_step(state, 1, TaskStepStatus.COMPLETED)
                 state = self._set_step(state, 2, TaskStepStatus.ACTIVE)
             for call in response.tool_calls:
+                if self._cancelled(state, is_cancelled):
+                    return self._cancel(state)
                 result = self.tool_executor.execute_call(call, allowed_tools=set(tool_names))
                 state = self._record_tool_result(state, result, model=f"{model.provider}/{model.model_id}")
                 if result.requires_confirmation:
@@ -256,6 +260,16 @@ class Orchestrator:
         if index >= len(state.steps):
             return state
         return self._save(state.with_step_status(index, status))
+
+    def _cancelled(self, state: TaskState, callback: Callable[[], bool] | None) -> bool:
+        return (callback is not None and callback()) or self.store.get(state.task_id).cancellation_requested
+
+    def _cancel(self, state: TaskState) -> TaskState:
+        return self._save(
+            state.with_updates(cancellation_requested=True, current_step=None).transition(
+                TaskStatus.CANCELLED, phase="cancelled"
+            )
+        )
 
     def _complete_response_step(self, state: TaskState, *, tool_names: tuple[str, ...]) -> TaskState:
         if not tool_names:

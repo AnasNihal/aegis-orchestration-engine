@@ -141,8 +141,30 @@ class InMemoryTaskStateStore:
         with self._lock:
             if state.task_id not in self._states:
                 raise TaskStateError(f"task does not exist: {state.task_id}")
+            current = self._states[state.task_id]
+            if current.cancellation_requested and not state.cancellation_requested:
+                state = state.with_updates(cancellation_requested=True)
             self._states[state.task_id] = state
         return state
+
+    def claim(self, task_id: str) -> TaskState:
+        with self._lock:
+            state = self.get(task_id)
+            if state.status is not TaskStatus.PENDING or state.cancellation_requested:
+                raise TaskStateError(f"task is not claimable: {task_id}")
+            state = state.transition(TaskStatus.PLANNING, phase="routing")
+            self._states[task_id] = state
+            return state
+
+    def request_cancel(self, task_id: str) -> TaskState:
+        with self._lock:
+            state = self.get(task_id)
+            if state.status is TaskStatus.PENDING:
+                state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
+            elif state.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+                state = state.with_updates(cancellation_requested=True)
+            self._states[task_id] = state
+            return state
 
     def get(self, task_id: str) -> TaskState:
         with self._lock:

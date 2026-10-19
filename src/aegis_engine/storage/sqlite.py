@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 import sqlite3
 from threading import RLock
+from dataclasses import replace
+from datetime import datetime, timezone
 
 from aegis_engine.tasks.state import (
     TaskResult,
@@ -117,17 +119,107 @@ class SQLiteTaskStateStore:
                     """UPDATE tasks SET user_request=?, status=?, phase=?, plan_json=?, steps_json=?,
                     current_step=?, completed_steps_json=?, results_json=?, errors_json=?,
                     retry_count=?, selected_models_json=?, final_output=?,
-                    cancellation_requested=?, created_at=?, updated_at=? WHERE task_id=?""",
+                    cancellation_requested=MAX(cancellation_requested, ?), created_at=?, updated_at=? WHERE task_id=?""",
                     (*_state_values(state)[1:], state.task_id),
                 )
                 if cursor.rowcount != 1:
                     connection.rollback()
                     raise TaskStateError(f"task does not exist: {state.task_id}")
                 connection.commit()
+                row = connection.execute("SELECT * FROM tasks WHERE task_id=?", (state.task_id,)).fetchone()
+            finally:
+                if self._connection is None:
+                    connection.close()
+        return _row_to_state(row)
+
+    def claim(self, task_id: str) -> TaskState:
+        """Move one pending task into planning exactly once."""
+        with self._lock:
+            connection = self._connect()
+            try:
+                now = datetime.now(timezone.utc).isoformat()
+                cursor = connection.execute(
+                    """UPDATE tasks SET status=?, phase=?, updated_at=?
+                    WHERE task_id=? AND status=? AND cancellation_requested=0""",
+                    (TaskStatus.PLANNING.value, "routing", now, task_id, TaskStatus.PENDING.value),
+                )
+                if cursor.rowcount != 1:
+                    connection.rollback()
+                    raise TaskStateError(f"task is not claimable: {task_id}")
+                connection.commit()
+                row = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+            finally:
+                if self._connection is None:
+                    connection.close()
+        return _row_to_state(row)
+
+    def request_cancel(self, task_id: str) -> TaskState:
+        """Cancel queued work, or persist a cooperative cancellation request."""
+        with self._lock:
+            connection = self._connect()
+            try:
+                row = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+                if row is None:
+                    raise TaskStateError(f"task does not exist: {task_id}")
+                state = _row_to_state(row)
+                if state.status is TaskStatus.PENDING:
+                    state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
+                elif state.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+                    state = state.with_updates(cancellation_requested=True)
+                else:
+                    return state
+                connection.execute(
+                    "UPDATE tasks SET status=?, phase=?, cancellation_requested=1, updated_at=? WHERE task_id=?",
+                    (state.status.value, state.phase, state.updated_at, task_id),
+                )
+                connection.commit()
             finally:
                 if self._connection is None:
                     connection.close()
         return state
+
+    def recover_interrupted(self) -> int:
+        """Close tasks abandoned by a previous single-process API instance."""
+        with self._lock:
+            connection = self._connect()
+            try:
+                rows = connection.execute(
+                    "SELECT * FROM tasks WHERE status IN (?, ?, ?)",
+                    (TaskStatus.PENDING.value, TaskStatus.PLANNING.value, TaskStatus.EXECUTING.value),
+                ).fetchall()
+                for row in rows:
+                    state = _row_to_state(row)
+                    if state.cancellation_requested:
+                        state = state.transition(TaskStatus.CANCELLED, phase="interrupted")
+                    else:
+                        error = "Task interrupted by server restart; submit it again"
+                        steps = tuple(
+                            replace(step, status=TaskStepStatus.FAILED, error=error)
+                            if step.status is TaskStepStatus.ACTIVE else step
+                            for step in state.steps
+                        )
+                        if state.status is TaskStatus.PENDING:
+                            state = state.transition(TaskStatus.PLANNING)
+                        state = state.with_updates(
+                            steps=steps,
+                            errors=(*state.errors, error),
+                            results=(*state.results, TaskResult(step=state.current_step or "task", success=False, error=error)),
+                        ).transition(TaskStatus.FAILED, phase="interrupted")
+                    connection.execute(
+                        """UPDATE tasks SET status=?, phase=?, steps_json=?, results_json=?, errors_json=?,
+                        updated_at=? WHERE task_id=?""",
+                        (
+                            state.status.value, state.phase,
+                            _json([{"name": step.name, "status": step.status.value, "error": step.error} for step in state.steps]),
+                            _json([asdict(result) for result in state.results]),
+                            _json(state.errors), state.updated_at, state.task_id,
+                        ),
+                    )
+                connection.commit()
+                return len(rows)
+            finally:
+                if self._connection is None:
+                    connection.close()
 
     def get(self, task_id: str) -> TaskState:
         with self._lock:

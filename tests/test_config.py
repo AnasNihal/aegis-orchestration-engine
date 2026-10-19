@@ -14,6 +14,8 @@ def test_settings_defaults_are_local_and_explicit() -> None:
     assert configured.laya_enabled is False
     assert configured.task_db_path == ".aegis/tasks.sqlite3"
     assert configured.memory_db_path == ".aegis/memory.sqlite3"
+    assert configured.task_max_workers == 1
+    assert configured.task_max_queued == 4
 
 
 def test_settings_can_be_loaded_from_environment_mapping() -> None:
@@ -30,6 +32,8 @@ def test_settings_can_be_loaded_from_environment_mapping() -> None:
             "AEGIS_LAYA_PRELOAD": "no",
             "AEGIS_TASK_DB_PATH": "/tmp/aegis-test.sqlite3",
             "AEGIS_MEMORY_DB_PATH": "/tmp/aegis-memory.sqlite3",
+            "AEGIS_TASK_MAX_WORKERS": "1",
+            "AEGIS_TASK_MAX_QUEUED": "0",
         }
     )
 
@@ -44,6 +48,8 @@ def test_settings_can_be_loaded_from_environment_mapping() -> None:
     assert configured.laya_preload is False
     assert configured.task_db_path == "/tmp/aegis-test.sqlite3"
     assert configured.memory_db_path == "/tmp/aegis-memory.sqlite3"
+    assert configured.task_max_workers == 1
+    assert configured.task_max_queued == 0
 
 
 @pytest.mark.parametrize(
@@ -55,6 +61,8 @@ def test_settings_can_be_loaded_from_environment_mapping() -> None:
         ("AEGIS_LOCAL_ONLY", "sometimes"),
         ("AEGIS_LAYA_ENABLED", "sometimes"),
         ("AEGIS_LAYA_PRELOAD", "sometimes"),
+        ("AEGIS_TASK_MAX_WORKERS", "0"),
+        ("AEGIS_TASK_MAX_QUEUED", "-1"),
     ],
 )
 def test_invalid_environment_values_are_rejected(field: str, value: str) -> None:

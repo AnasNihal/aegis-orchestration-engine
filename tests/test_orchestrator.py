@@ -156,6 +156,47 @@ def test_orchestrator_supports_cancellation_before_inference() -> None:
     assert provider.calls == 0
 
 
+def test_orchestrator_honors_cancellation_after_inference() -> None:
+    provider = FakeProvider()
+    orchestrator = build_orchestrator(provider)
+    cancelled = False
+    original_chat = provider.chat
+
+    def chat_then_cancel(request: ChatRequest) -> ChatResponse:
+        nonlocal cancelled
+        response = original_chat(request)
+        cancelled = True
+        return response
+
+    provider.chat = chat_then_cancel
+
+    state = orchestrator.run("Cancel while generating", is_cancelled=lambda: cancelled)
+
+    assert state.status is TaskStatus.CANCELLED
+    assert state.final_output is None
+    assert state.cancellation_requested
+
+
+def test_cancellation_during_provider_error_stops_retries() -> None:
+    provider = FakeProvider()
+    orchestrator = build_orchestrator(provider, max_retries=3)
+    cancelled = False
+
+    def failing_chat(request: ChatRequest) -> ChatResponse:
+        nonlocal cancelled
+        provider.calls += 1
+        cancelled = True
+        raise ProviderError("provider stopped", provider="fake", retryable=True)
+
+    provider.chat = failing_chat
+
+    state = orchestrator.run("Cancel while retrying", is_cancelled=lambda: cancelled)
+
+    assert state.status is TaskStatus.CANCELLED
+    assert state.retry_count == 0
+    assert provider.calls == 1
+
+
 def test_orchestrator_executes_explicit_tool_and_continues() -> None:
     provider = FakeProvider(issue_tool_call=True)
     executor = ToolExecutor(build_builtin_registry())

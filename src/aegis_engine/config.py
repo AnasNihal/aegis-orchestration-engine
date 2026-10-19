@@ -46,6 +46,16 @@ def _parse_positive_int(value: str, *, name: str) -> int:
     return parsed
 
 
+def _parse_nonnegative_int(value: str, *, name: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be an integer") from exc
+    if parsed < 0:
+        raise ConfigurationError(f"{name} must not be negative")
+    return parsed
+
+
 @dataclass(frozen=True)
 class Settings:
     """Validated settings used by the model gateway."""
@@ -59,6 +69,8 @@ class Settings:
     approved_file_roots: tuple[str, ...] = ()
     task_db_path: str = ".aegis/tasks.sqlite3"
     memory_db_path: str = ".aegis/memory.sqlite3"
+    task_max_workers: int = 1
+    task_max_queued: int = 4
     laya_enabled: bool = False
     laya_model: str | None = None
     laya_preload: bool = False
@@ -79,6 +91,8 @@ class Settings:
             raise ConfigurationError("task_db_path must not be empty")
         if not self.memory_db_path.strip():
             raise ConfigurationError("memory_db_path must not be empty")
+        if self.task_max_workers < 1 or self.task_max_queued < 0:
+            raise ConfigurationError("task_max_workers must be positive and task_max_queued must not be negative")
         if self.laya_model is not None and not self.laya_model.strip():
             raise ConfigurationError("laya_model must not be empty when provided")
 
@@ -111,6 +125,12 @@ class Settings:
             approved_file_roots=roots,
             task_db_path=values.get("AEGIS_TASK_DB_PATH", cls.task_db_path),
             memory_db_path=values.get("AEGIS_MEMORY_DB_PATH", cls.memory_db_path),
+            task_max_workers=_parse_positive_int(
+                values.get("AEGIS_TASK_MAX_WORKERS", "1"), name="AEGIS_TASK_MAX_WORKERS"
+            ),
+            task_max_queued=_parse_nonnegative_int(
+                values.get("AEGIS_TASK_MAX_QUEUED", "4"), name="AEGIS_TASK_MAX_QUEUED"
+            ),
             laya_enabled=_parse_bool(laya_enabled_value, name="AEGIS_LAYA_ENABLED"),
             laya_model=values.get("AEGIS_LAYA_MODEL") or None,
             laya_preload=_parse_bool(laya_preload_value, name="AEGIS_LAYA_PRELOAD"),

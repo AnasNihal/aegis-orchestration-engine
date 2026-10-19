@@ -36,6 +36,8 @@ Tool selection is currently deterministic and conservative. The request selector
 
 The deterministic planner records a bounded task plan before routing. It describes application-controlled phases and never turns model text into executable instructions. Every phase is persisted as a checkpoint with an explicit status, allowing the API to distinguish pending, active, completed, waiting, and failed work. The task API accepts work asynchronously, returns a task ID, supports polling, and sends cancellation requests through the runtime's bounded cancellation callback. The streaming chat API remains a convenience interface over the same orchestrator. Full multi-step plan resumption will be added only after confirmation tokens and recovery are covered by end-to-end tests.
 
+The submitted-task runner has fixed worker and queue capacity. The store atomically claims pending work and persists cancellation requests so stale task saves cannot erase them. The API waits for in-flight work during graceful shutdown. After an abrupt stop, the next single-process API startup marks abandoned pending/planning/executing tasks failed rather than silently replaying side effects. Terminal task status cannot be overwritten by a late worker. This in-process design does not support multiple API workers sharing one task database yet.
+
 ## Agent boundary
 
 `agents.runtime` exposes explicit coding, analysis, and research profiles over the shared model gateway. An agent receives only its assigned task and context, has a declared capability boundary and input limit, performs one bounded inference, and returns an `AgentResult`. Agents cannot spawn other agents or execute tools in this milestone.

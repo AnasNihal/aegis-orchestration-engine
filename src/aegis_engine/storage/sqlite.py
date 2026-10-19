@@ -119,12 +119,17 @@ class SQLiteTaskStateStore:
                     """UPDATE tasks SET user_request=?, status=?, phase=?, plan_json=?, steps_json=?,
                     current_step=?, completed_steps_json=?, results_json=?, errors_json=?,
                     retry_count=?, selected_models_json=?, final_output=?,
-                    cancellation_requested=MAX(cancellation_requested, ?), created_at=?, updated_at=? WHERE task_id=?""",
-                    (*_state_values(state)[1:], state.task_id),
+                    cancellation_requested=MAX(cancellation_requested, ?), created_at=?, updated_at=?
+                    WHERE task_id=? AND (status NOT IN (?, ?, ?) OR status=?)""",
+                    (
+                        *_state_values(state)[1:], state.task_id,
+                        TaskStatus.COMPLETED.value, TaskStatus.FAILED.value,
+                        TaskStatus.CANCELLED.value, state.status.value,
+                    ),
                 )
                 if cursor.rowcount != 1:
                     connection.rollback()
-                    raise TaskStateError(f"task does not exist: {state.task_id}")
+                    raise TaskStateError(f"task does not exist or is terminal: {state.task_id}")
                 connection.commit()
                 row = connection.execute("SELECT * FROM tasks WHERE task_id=?", (state.task_id,)).fetchone()
             finally:
@@ -163,6 +168,8 @@ class SQLiteTaskStateStore:
                     raise TaskStateError(f"task does not exist: {task_id}")
                 state = _row_to_state(row)
                 if state.status is TaskStatus.PENDING:
+                    state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
+                elif state.status in {TaskStatus.WAITING_FOR_INPUT, TaskStatus.WAITING_FOR_CONFIRMATION}:
                     state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
                 elif state.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
                     state = state.with_updates(cancellation_requested=True)

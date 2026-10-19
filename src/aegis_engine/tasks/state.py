@@ -142,6 +142,8 @@ class InMemoryTaskStateStore:
             if state.task_id not in self._states:
                 raise TaskStateError(f"task does not exist: {state.task_id}")
             current = self._states[state.task_id]
+            if current.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED} and state.status is not current.status:
+                raise TaskStateError(f"terminal task cannot change status: {state.task_id}")
             if current.cancellation_requested and not state.cancellation_requested:
                 state = state.with_updates(cancellation_requested=True)
             self._states[state.task_id] = state
@@ -160,6 +162,8 @@ class InMemoryTaskStateStore:
         with self._lock:
             state = self.get(task_id)
             if state.status is TaskStatus.PENDING:
+                state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
+            elif state.status in {TaskStatus.WAITING_FOR_INPUT, TaskStatus.WAITING_FOR_CONFIRMATION}:
                 state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
             elif state.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
                 state = state.with_updates(cancellation_requested=True)

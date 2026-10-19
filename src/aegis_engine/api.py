@@ -7,12 +7,11 @@ selection or tool policy; those remain in the provider-neutral core.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from collections.abc import Callable, Mapping
 import json
 from queue import Queue
-from threading import Event
 from typing import Any, Literal
-from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -31,6 +30,7 @@ from aegis_engine.models import (
 from aegis_engine.orchestration import Orchestrator
 from aegis_engine.storage import SQLiteTaskStateStore
 from aegis_engine.tasks import TaskStateError, TaskStatus
+from aegis_engine.tasks.runner import TaskCapacityError, TaskRunner
 from aegis_engine.tools import ToolExecutor, build_builtin_registry, select_tools
 from aegis_engine.web import INDEX_HTML
 
@@ -146,12 +146,28 @@ def create_app(
         models = discovered_models
     available_models = tuple(models or ())
     model_ids = {model.model_id for model in available_models}
-    active_cancellations: dict[str, Event] = {}
-    background_tasks: set[asyncio.Task[Any]] = set()
+    runner = (
+        TaskRunner(
+            orchestrator,
+            max_workers=runtime_config.task_max_workers,
+            max_queued=runtime_config.task_max_queued,
+        )
+        if hasattr(orchestrator, "store") else None
+    )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            if runner is not None:
+                await asyncio.to_thread(runner.close)
+
     app = FastAPI(
         title="Aegis Orchestration Engine",
         version="0.1.0",
         description="Local-first, model-agnostic AI orchestration API.",
+        lifespan=lifespan,
     )
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -211,32 +227,19 @@ def create_app(
     async def submit_task(body: ChatRequestBody) -> TaskAcceptedResponse:
         if model_ids and body.model not in model_ids:
             raise HTTPException(status_code=422, detail="selected model is not available")
-        task_id = str(uuid4())
-        cancellation = Event()
+        if runner is None:
+            raise HTTPException(status_code=503, detail="task runner is unavailable")
         conversation = tuple(ChatMessage(role=item.role, content=item.content) for item in body.history)
         try:
-            orchestrator.store.create(body.message, task_id=task_id)
-        except TaskStateError as exc:
-            raise HTTPException(status_code=409, detail="task id collision") from exc
-        active_cancellations[task_id] = cancellation
-
-        def run_task() -> None:
-            try:
-                orchestrator.run(
-                    body.message,
-                    task_id=task_id,
-                    is_cancelled=cancellation.is_set,
-                    model_id=body.model,
-                    conversation=conversation,
-                    tool_names=select_tools(body.message),
-                )
-            finally:
-                active_cancellations.pop(task_id, None)
-
-        background = asyncio.create_task(asyncio.to_thread(run_task))
-        background_tasks.add(background)
-        background.add_done_callback(background_tasks.discard)
-        return TaskAcceptedResponse(task_id=task_id, status="pending")
+            task = runner.submit(
+                body.message,
+                model_id=body.model,
+                conversation=conversation,
+                tool_names=select_tools(body.message),
+            )
+        except TaskCapacityError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return TaskAcceptedResponse(task_id=task.task_id, status="pending")
 
     @app.post(
         "/api/tasks/{task_id}/cancel",
@@ -244,23 +247,16 @@ def create_app(
         tags=["tasks"],
     )
     async def cancel_task(task_id: str) -> TaskCancellationResponse:
+        if runner is None:
+            raise HTTPException(status_code=503, detail="task runner is unavailable")
         try:
-            task = orchestrator.store.get(task_id)
+            task = runner.cancel(task_id)
         except TaskStateError as exc:
             raise HTTPException(status_code=404, detail="task not found") from exc
-        if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
-            return TaskCancellationResponse(
-                task_id=task_id,
-                status=task.status.value,
-                cancellation_requested=task.cancellation_requested,
-            )
-        cancellation = active_cancellations.get(task_id)
-        if cancellation is not None:
-            cancellation.set()
         return TaskCancellationResponse(
             task_id=task_id,
             status=task.status.value,
-            cancellation_requested=True,
+            cancellation_requested=task.cancellation_requested,
         )
 
     @app.post(

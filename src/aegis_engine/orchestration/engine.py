@@ -103,7 +103,7 @@ class Orchestrator:
             if state.status is not TaskStatus.PENDING:
                 raise TaskStateError(f"task is not pending: {task_id}")
         if is_cancelled and is_cancelled():
-            return self._save(state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED))
+            return self.store.request_cancel(state.task_id)
 
         state = self.store.claim(state.task_id)
         if tool_names and self.tool_executor is None:
@@ -190,6 +190,7 @@ class Orchestrator:
                 messages=messages,
                 tools=tool_schemas,
                 on_token=on_token,
+                is_cancelled=is_cancelled,
             )
             if response is None:
                 return state
@@ -280,7 +281,7 @@ class Orchestrator:
             state = self._set_step(state, 3, TaskStepStatus.COMPLETED)
         return state
 
-    def _chat_with_retries(self, state: TaskState, *, model, messages, tools, on_token=None):
+    def _chat_with_retries(self, state: TaskState, *, model, messages, tools, on_token=None, is_cancelled=None):
         attempts = 0
         while True:
             try:
@@ -297,6 +298,8 @@ class Orchestrator:
                     response = self.gateway.chat(model, request)
                 return response, state
             except ProviderError as exc:
+                if self._cancelled(state, is_cancelled):
+                    return None, self._cancel(state)
                 attempts += 1
                 will_retry = exc.retryable and attempts <= self.config.max_retries
                 state = self._save(

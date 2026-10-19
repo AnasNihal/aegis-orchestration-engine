@@ -1,8 +1,11 @@
 from dataclasses import dataclass
+from threading import Event
+from time import monotonic, sleep
 
 from fastapi.testclient import TestClient
 
 from aegis_engine.api import create_app
+from aegis_engine.config import Settings
 from aegis_engine.models import ChatRequest, ChatResponse, ModelInfo
 from aegis_engine.tasks import InMemoryTaskStateStore, TaskStatus
 
@@ -48,6 +51,23 @@ class AsyncFakeOrchestrator:
                 final_output="background complete"
             ).transition(TaskStatus.COMPLETED)
         )
+
+
+class SlowOrchestrator:
+    def __init__(self) -> None:
+        self.store = InMemoryTaskStateStore()
+        self.started = Event()
+        self.release = Event()
+
+    def run(self, request: str, *, task_id: str, is_cancelled, **kwargs):
+        state = self.store.claim(task_id)
+        self.started.set()
+        self.release.wait(timeout=3)
+        if is_cancelled():
+            state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
+        else:
+            state = state.transition(TaskStatus.EXECUTING).transition(TaskStatus.COMPLETED)
+        return self.store.save(state)
 
 
 def test_fastapi_exposes_typed_health_models_and_openapi() -> None:
@@ -119,13 +139,68 @@ def test_fastapi_exposes_persisted_task_state() -> None:
 
 def test_fastapi_submits_background_task_and_allows_status_polling() -> None:
     orchestrator = AsyncFakeOrchestrator()
-    client = TestClient(create_app(orchestrator=orchestrator, models=()))
+    with TestClient(create_app(orchestrator=orchestrator, models=())) as client:
+        accepted = client.post("/api/tasks", json={"model": "fake-model", "message": "run this task"})
 
-    accepted = client.post("/api/tasks", json={"model": "fake-model", "message": "run this task"})
+        assert accepted.status_code == 202
+        task_id = accepted.json()["task_id"]
+        deadline = monotonic() + 2
+        while monotonic() < deadline:
+            status = client.get(f"/api/tasks/{task_id}")
+            if status.json()["status"] == "completed":
+                break
+            sleep(0.01)
+        assert status.status_code == 200
+        assert status.json()["status"] == "completed"
+        assert status.json()["final_output"] == "background complete"
 
-    assert accepted.status_code == 202
-    task_id = accepted.json()["task_id"]
-    status = client.get(f"/api/tasks/{task_id}")
-    assert status.status_code == 200
-    assert status.json()["status"] == "completed"
-    assert status.json()["final_output"] == "background complete"
+
+def test_api_startup_recovers_interrupted_sqlite_task(tmp_path) -> None:
+    from aegis_engine.storage import SQLiteTaskStateStore
+
+    path = tmp_path / "tasks.sqlite3"
+    store = SQLiteTaskStateStore(path)
+    store.claim(store.create("interrupted", task_id="old-task").task_id)
+    orchestrator = AsyncFakeOrchestrator()
+    orchestrator.store = SQLiteTaskStateStore(path)
+
+    with TestClient(create_app(
+        config=Settings(task_db_path=str(path)), orchestrator=orchestrator, models=()
+    )) as client:
+        response = client.get("/api/tasks/old-task")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert "server restart" in response.json()["errors"][-1]
+
+
+def test_task_api_rejects_full_queue_and_persists_cancel_request() -> None:
+    orchestrator = SlowOrchestrator()
+    app = create_app(
+        config=Settings(task_max_workers=1, task_max_queued=0),
+        orchestrator=orchestrator,
+        models=(),
+    )
+    try:
+        with TestClient(app) as client:
+            first = client.post("/api/tasks", json={"model": "fake", "message": "first"})
+            assert first.status_code == 202
+            assert orchestrator.started.wait(timeout=2)
+
+            second = client.post("/api/tasks", json={"model": "fake", "message": "second"})
+            assert second.status_code == 503
+
+            task_id = first.json()["task_id"]
+            cancelled = client.post(f"/api/tasks/{task_id}/cancel")
+            assert cancelled.status_code == 200
+            assert cancelled.json()["cancellation_requested"] is True
+            orchestrator.release.set()
+            deadline = monotonic() + 2
+            while monotonic() < deadline:
+                status = client.get(f"/api/tasks/{task_id}").json()["status"]
+                if status == "cancelled":
+                    break
+                sleep(0.01)
+            assert status == "cancelled"
+    finally:
+        orchestrator.release.set()

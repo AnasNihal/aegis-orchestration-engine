@@ -42,6 +42,7 @@ The hook blocks commits with a different author or committer identity. A GitHub 
 - A bounded deterministic planner records direct-response and selected-tool phases in task state.
 - Each planned phase has a persisted checkpoint (`pending`, `active`, `completed`, `waiting`, or `failed`) so progress can be inspected safely and resumed in a later milestone.
 - A task-oriented asynchronous API accepts work immediately, returns a task ID, supports status polling, and supports cancellation requests independently of the streaming chat interface.
+- Submitted tasks now use a bounded worker pool. Cancellation is persisted, and interrupted tasks are marked failed after a server restart instead of remaining stuck in progress.
 
 ## Local setup
 
@@ -105,6 +106,17 @@ POST /api/chat
 
 `POST /api/tasks` is the orchestration-oriented endpoint: it accepts work, returns `202 Accepted` with a task ID, and runs the bounded task in the background. Poll `GET /api/tasks/{task_id}` for plan, checkpoint, result, error, and model information. `POST /api/tasks/{task_id}/cancel` requests cancellation through the runtime's bounded cancellation checks.
 
+For a local smoke test, submit a task and use the returned `task_id` to inspect it:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8765/api/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen2.5:7b","message":"Explain how the task runner works"}'
+curl -sS http://127.0.0.1:8765/api/tasks/YOUR_TASK_ID
+```
+
+The runner uses one worker and four waiting slots by default to avoid loading multiple large local models at once. When all slots are occupied, new submissions receive HTTP 503 and can be retried later. Cancellation of queued work is immediate; running work checks for cancellation between model and tool operations. A model call already in progress cannot be forcibly interrupted. On restart, tasks left pending, planning, or executing are marked failed with a clear interruption error; they are not replayed automatically. Intentionally paused tasks remain paused. Run one API process against a task database; cross-process workers and leases are future work.
+
 `POST /api/chat` remains available as a convenience streaming interface. It accepts a selected model, a message, and validated user/assistant history, then returns newline-delimited streaming events for tokens, completion, or errors.
 
 ## Configuration
@@ -120,6 +132,8 @@ POST /api/chat
 | `AEGIS_APPROVED_FILE_ROOTS` | empty | OS-separated roots allowed for text reads |
 | `AEGIS_TASK_DB_PATH` | `.aegis/tasks.sqlite3` | Local SQLite task-state database |
 | `AEGIS_MEMORY_DB_PATH` | `.aegis/memory.sqlite3` | Local SQLite notes database |
+| `AEGIS_TASK_MAX_WORKERS` | `1` | Maximum concurrent submitted tasks in one API process |
+| `AEGIS_TASK_MAX_QUEUED` | `4` | Maximum additional waiting submitted tasks |
 | `AEGIS_LAYA_ENABLED` | `false` | Enables optional Laya task understanding |
 | `AEGIS_LAYA_MODEL` | empty | Optional Laya checkpoint name; the orchestrator uses `typed-decisions` for routing questions |
 | `AEGIS_LAYA_PRELOAD` | `false` | Eagerly loads Laya checkpoints; leave disabled to load on first decision |
@@ -185,4 +199,4 @@ Task state is stored separately from conversation context, long-term memory, and
 
 Implemented: local Ollama provider, model discovery, deterministic routing, bounded orchestration, FastAPI REST API, OpenAPI documentation, streaming browser UI, safe tools, SQLite task state, agent profiles, verification, and evaluation primitives.
 
-Not yet implemented: hosted provider adapters, full automatic tool selection, multi-step plan execution beyond bounded tool iterations, parallel agents, semantic long-term memory, and a production API/frontend. These are intentionally separate future milestones. The next recommended step is to connect task-understanding signals to explicit tool/agent selection, with end-to-end tests for each path.
+Not yet implemented: hosted provider adapters, full automatic tool selection, multi-step plan execution and resumption beyond bounded tool iterations, parallel agents, semantic long-term memory, and a production API/frontend. These are intentionally separate future milestones. The next recommended step is a safe confirmation and resume flow for paused tasks, followed by orchestrator-controlled agent delegation.

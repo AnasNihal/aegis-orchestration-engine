@@ -102,3 +102,7 @@ def test_restart_recovery_closes_interrupted_tasks(tmp_path) -> None:
     assert running.steps[0].status is TaskStepStatus.FAILED
     assert "server restart" in running.errors[-1]
     assert restarted.get("cancel-me").status is TaskStatus.CANCELLED
+
+    with pytest.raises(TaskStateError, match="terminal"):
+        restarted.save(active.with_updates(phase="late worker save"))
+    assert restarted.get("running").status is TaskStatus.FAILED

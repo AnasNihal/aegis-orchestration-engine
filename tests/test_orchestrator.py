@@ -16,6 +16,7 @@ from aegis_engine.models import (
 )
 from aegis_engine.orchestration import Orchestrator, OrchestratorConfig
 from aegis_engine.tasks import InMemoryTaskStateStore, TaskStateError, TaskStatus
+from aegis_engine.tasks import PendingToolAction
 from aegis_engine.tools import (
     PermissionClass,
     ToolDefinition,
@@ -235,6 +236,95 @@ def test_orchestrator_pauses_for_confirmation() -> None:
     assert state.status is TaskStatus.WAITING_FOR_CONFIRMATION
     assert state.current_step == "confirm:calculator"
     assert provider.calls == 1
+    assert state.pending_action is not None
+    assert state.pending_action.name == "calculator"
+    assert state.pending_action.arguments == {"expression": "2 + 2"}
+
+
+def build_confirmation_orchestrator(provider, handler):
+    registry = ToolRegistry()
+    registry.register(
+        ToolDefinition(
+            name="dangerous_action",
+            description="A test action that requires approval.",
+            input_schema={
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+            handler=handler,
+            permission=PermissionClass.CONFIRMATION_REQUIRED,
+        )
+    )
+    model_registry = ModelRegistry()
+    model_registry.register(
+        ModelInfo(
+            model_id="local-test-model",
+            provider="fake",
+            local=True,
+            available=True,
+            capabilities=frozenset({"completion", "tools"}),
+        )
+    )
+    store = InMemoryTaskStateStore()
+    return Orchestrator(
+        ModelGateway([provider]),
+        DeterministicModelRouter(model_registry),
+        store=store,
+        provider_settings=Settings(local_only=True),
+        tool_executor=ToolExecutor(registry),
+    ), store
+
+
+def test_approved_confirmation_executes_once_and_completes() -> None:
+    provider = FakeProvider()
+    responses = iter((
+        ChatResponse(
+            model="local-test-model",
+            content="",
+            tool_calls=(ToolCall(name="dangerous_action", arguments={"value": "approved"}),),
+        ),
+        ChatResponse(model="local-test-model", content="The action is done"),
+    ))
+    provider.chat = lambda request: next(responses)
+    actions = []
+    orchestrator, store = build_confirmation_orchestrator(provider, lambda value: actions.append(value) or {"done": True})
+
+    paused = orchestrator.run("Do the approved action", tool_names=("dangerous_action",))
+    assert paused.status is TaskStatus.WAITING_FOR_CONFIRMATION
+    assert paused.pending_action is not None
+
+    approved = store.resolve_confirmation(
+        paused.task_id, paused.pending_action.confirmation_token, approved=True
+    )
+    completed = orchestrator.resume_confirmation(approved.task_id)
+
+    assert approved.status is TaskStatus.PLANNING
+    assert completed.status is TaskStatus.COMPLETED, completed.errors
+    assert completed.final_output == "The action is done"
+    assert actions == ["approved"]
+    assert completed.pending_action is None
+
+
+def test_rejected_confirmation_never_runs_tool() -> None:
+    provider = FakeProvider()
+    provider.chat = lambda request: ChatResponse(
+        model=request.model,
+        content="",
+        tool_calls=(ToolCall(name="dangerous_action", arguments={"value": "no"}),),
+    )
+    actions = []
+    orchestrator, store = build_confirmation_orchestrator(provider, lambda value: actions.append(value))
+
+    paused = orchestrator.run("Do the action", tool_names=("dangerous_action",))
+    denied = store.resolve_confirmation(
+        paused.task_id, paused.pending_action.confirmation_token, approved=False
+    )
+
+    assert denied.status is TaskStatus.FAILED
+    assert denied.pending_action is None
+    assert actions == []
 
 
 def test_task_state_rejects_invalid_transition_and_unknown_save() -> None:

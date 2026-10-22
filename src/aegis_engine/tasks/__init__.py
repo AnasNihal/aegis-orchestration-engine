@@ -3,6 +3,7 @@
 from .state import (
     InMemoryTaskStateStore,
     TaskResult,
+    PendingToolAction,
     TaskState,
     TaskStateError,
     TaskStatus,
@@ -23,6 +24,7 @@ def __getattr__(name: str):
 __all__ = [
     "InMemoryTaskStateStore",
     "TaskResult",
+    "PendingToolAction",
     "TaskState",
     "TaskStateError",
     "TaskStatus",

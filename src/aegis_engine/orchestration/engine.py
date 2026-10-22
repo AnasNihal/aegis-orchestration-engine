@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import json
+import secrets
 
 from aegis_engine.config import Settings, settings
 from aegis_engine.decisions import (
@@ -31,6 +32,7 @@ from aegis_engine.tasks.state import (
     TaskStep,
     TaskStepStatus,
     TaskStateError,
+    PendingToolAction,
 )
 from aegis_engine.tools.executor import ToolExecutor, ToolResult
 from aegis_engine.verification import verify_task
@@ -219,6 +221,8 @@ class Orchestrator:
                 if not report.verified:
                     return self._fail(state, "Task verification failed: " + "; ".join(report.issues))
                 return self._save(candidate)
+            if len(response.tool_calls) > 1:
+                return self._fail(state, "Multiple simultaneous tool calls are not supported")
             if self.tool_executor is None:
                 return self._fail(state, "Model requested tools but tool execution is not configured")
             messages.append(
@@ -236,15 +240,27 @@ class Orchestrator:
                 if self._cancelled(state, is_cancelled):
                     return self._cancel(state)
                 result = self.tool_executor.execute_call(call, allowed_tools=set(tool_names))
-                state = self._record_tool_result(state, result, model=f"{model.provider}/{model.model_id}")
                 if result.requires_confirmation:
                     if tool_names and len(state.steps) > 2:
                         state = self._set_step(state, 2, TaskStepStatus.WAITING)
+                    pending_action = PendingToolAction(
+                        name=call.name,
+                        arguments=dict(call.arguments),
+                        call_id=call.call_id,
+                        model_id=model.model_id,
+                        allowed_tools=tuple(tool_names),
+                        messages=tuple(self._serialize_message(item) for item in messages),
+                        confirmation_token=secrets.token_urlsafe(32),
+                    )
                     return self._save(
-                        state.with_updates(current_step=f"confirm:{call.name}").transition(
+                        state.with_updates(
+                            current_step=f"confirm:{call.name}",
+                            pending_action=pending_action,
+                        ).transition(
                             TaskStatus.WAITING_FOR_CONFIRMATION, phase="confirmation"
                         )
                     )
+                state = self._record_tool_result(state, result, model=f"{model.provider}/{model.model_id}")
                 messages.append(
                     ChatMessage(
                         role="tool",
@@ -257,6 +273,130 @@ class Orchestrator:
                 )
         return self._fail(state, "Tool iteration limit reached")
 
+    def resume_confirmation(self, task_id: str, *, is_cancelled: Callable[[], bool] | None = None) -> TaskState:
+        """Execute one explicitly approved tool action and generate its result."""
+
+        state = self.store.get(task_id)
+        action = state.pending_action
+        if state.status is not TaskStatus.PLANNING or action is None:
+            raise TaskStateError("task has no approved action to resume")
+        if self.tool_executor is None:
+            return self._fail(state, "Tool execution is not configured for this task")
+        if self._cancelled(state, is_cancelled):
+            return self._cancel(state)
+
+        if len(state.steps) > 2:
+            state = self._save(state.with_step_status(2, TaskStepStatus.ACTIVE))
+
+        decision = self.router.route(
+            RoutingRequest(
+                required_capabilities=frozenset({"completion"}),
+                local_only=self.settings.local_only,
+                model_id=action.model_id,
+            )
+        )
+        tool_result = self.tool_executor.execute(
+            action.name,
+            action.arguments,
+            allowed_tools=set(action.allowed_tools),
+            confirmation_granted=True,
+        )
+        state = self._record_tool_result(
+            state,
+            tool_result,
+            model=f"{decision.selected.provider}/{decision.selected.model_id}",
+        )
+        state = self._save(state.with_updates(pending_action=None, current_step="generate_response"))
+        if not tool_result.success:
+            if len(state.steps) > 2:
+                state = self._save(state.with_step_status(2, TaskStepStatus.FAILED, error=tool_result.error))
+            return self._fail(state, tool_result.error or "Approved tool action failed")
+
+        if len(state.steps) > 2:
+            state = self._save(state.with_step_status(2, TaskStepStatus.COMPLETED))
+        if len(state.steps) > 3:
+            state = self._save(state.with_step_status(3, TaskStepStatus.ACTIVE))
+
+        messages = [self._deserialize_message(item) for item in action.messages]
+        messages.append(
+            ChatMessage(
+                role="tool",
+                name=action.name,
+                content=json.dumps(
+                    {"success": True, "output": tool_result.output, "error": None},
+                    default=str,
+                ),
+            )
+        )
+        state = self._save(
+            state.with_updates(
+                current_step="generate_response",
+                selected_models=(*state.selected_models, f"{decision.selected.provider}/{decision.selected.model_id}"),
+            ).transition(TaskStatus.EXECUTING, phase="inference_after_confirmation")
+        )
+        response, state = self._chat_with_retries(
+            state,
+            model=decision.selected,
+            messages=messages,
+            tools=(),
+            is_cancelled=is_cancelled,
+        )
+        if response is None:
+            return state
+        if self._cancelled(state, is_cancelled):
+            return self._cancel(state)
+        if response.tool_calls:
+            return self._fail(state, "Additional tool actions require a new bounded plan")
+        if not response.content.strip():
+            return self._fail(state, "Model returned an empty response after confirmation")
+
+        result = TaskResult(
+            step="generate_response",
+            success=True,
+            output=response.content,
+            model=f"{decision.selected.provider}/{decision.selected.model_id}",
+        )
+        candidate = state.with_updates(
+            current_step=None,
+            completed_steps=(*state.completed_steps, "execute_tools", "generate_response"),
+            results=(*state.results, result),
+            final_output=response.content,
+        ).transition(TaskStatus.COMPLETED, phase="complete")
+        if len(candidate.steps) > 2:
+            candidate = candidate.with_step_status(2, TaskStepStatus.COMPLETED)
+        if len(candidate.steps) > 3:
+            candidate = candidate.with_step_status(3, TaskStepStatus.COMPLETED)
+        report = verify_task(candidate)
+        if not report.verified:
+            return self._fail(state, "Task verification failed: " + "; ".join(report.issues))
+        return self._save(candidate)
+
+    @staticmethod
+    def _serialize_message(message: ChatMessage) -> dict:
+        return {
+            "role": message.role,
+            "content": message.content,
+            "name": message.name,
+            "tool_calls": [
+                {"name": call.name, "arguments": dict(call.arguments), "call_id": call.call_id}
+                for call in message.tool_calls
+            ],
+        }
+
+    @staticmethod
+    def _deserialize_message(value: dict) -> ChatMessage:
+        from aegis_engine.models.base import ToolCall
+
+        return ChatMessage(
+            role=value["role"],
+            content=value["content"],
+            name=value.get("name"),
+            tool_calls=tuple(
+                ToolCall(name=call["name"], arguments=call["arguments"], call_id=call.get("call_id"))
+                for call in value.get("tool_calls", [])
+            ),
+        )
+
     def _set_step(self, state: TaskState, index: int, status: TaskStepStatus) -> TaskState:
         if index >= len(state.steps):
             return state
@@ -267,7 +407,9 @@ class Orchestrator:
 
     def _cancel(self, state: TaskState) -> TaskState:
         return self._save(
-            state.with_updates(cancellation_requested=True, current_step=None).transition(
+            state.with_updates(
+                cancellation_requested=True, current_step=None, pending_action=None
+            ).transition(
                 TaskStatus.CANCELLED, phase="cancelled"
             )
         )

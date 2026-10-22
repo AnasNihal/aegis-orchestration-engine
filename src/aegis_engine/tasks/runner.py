@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from aegis_engine.models.base import ChatMessage
 from aegis_engine.orchestration.engine import Orchestrator
-from aegis_engine.tasks.state import TaskResult, TaskState, TaskStatus, TaskStepStatus
+from aegis_engine.tasks.state import TaskResult, TaskState, TaskStateError, TaskStatus, TaskStepStatus
 
 
 class TaskCapacityError(RuntimeError):
@@ -74,6 +74,25 @@ class TaskRunner:
                 future.cancel()
             return state
 
+    def confirm(self, task_id: str, token: str, *, approved: bool) -> TaskState:
+        """Resolve a pending confirmation; approved work enters the bounded pool."""
+        if not approved:
+            return self.store.resolve_confirmation(task_id, token, approved=False)
+        with self._lock:
+            if self._closed:
+                raise TaskCapacityError("task runner is closed")
+            if not self._slots.acquire(blocking=False):
+                raise TaskCapacityError("task capacity reached; try again later")
+            try:
+                state = self.store.resolve_confirmation(task_id, token, approved=True)
+                future = self._pool.submit(self._resume, task_id)
+                self._futures[task_id] = future
+                future.add_done_callback(lambda completed: self._finished(task_id, completed))
+                return state
+            except Exception:
+                self._slots.release()
+                raise
+
     def close(self) -> None:
         with self._lock:
             self._closed = True
@@ -107,27 +126,40 @@ class TaskRunner:
                 tool_names=tool_names,
             )
         except Exception:
-            # Internal exception text may contain provider or filesystem data.
-            # Record a stable, non-sensitive failure instead.
-            error = "Background task failed unexpectedly"
-            state = self.store.get(task_id)
-            if state.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
-                return
-            if state.cancellation_requested:
-                self.store.save(state.transition(TaskStatus.CANCELLED, phase="cancelled"))
-                return
-            if state.status is TaskStatus.PENDING:
-                state = state.transition(TaskStatus.PLANNING)
-            if state.status in {TaskStatus.WAITING_FOR_INPUT, TaskStatus.WAITING_FOR_CONFIRMATION}:
-                state = state.transition(TaskStatus.PLANNING)
-            steps = tuple(
-                replace(step, status=TaskStepStatus.FAILED, error=error)
-                if step.status is TaskStepStatus.ACTIVE else step
-                for step in state.steps
+            self._mark_unexpected_failure(task_id)
+
+    def _resume(self, task_id: str) -> None:
+        try:
+            self.orchestrator.resume_confirmation(
+                task_id,
+                is_cancelled=lambda: self.store.get(task_id).cancellation_requested,
             )
-            state = state.with_updates(
-                steps=steps,
-                errors=(*state.errors, error),
-                results=(*state.results, TaskResult(step=state.current_step or "task", success=False, error=error)),
-            ).transition(TaskStatus.FAILED, phase="failed")
-            self.store.save(state)
+        except Exception:
+            self._mark_unexpected_failure(task_id)
+
+    def _mark_unexpected_failure(self, task_id: str) -> None:
+        # Internal exception text may contain provider or filesystem data.
+        # Record a stable, non-sensitive failure instead.
+        error = "Background task failed unexpectedly"
+        state = self.store.get(task_id)
+        if state.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+            return
+        if state.cancellation_requested:
+            self.store.save(state.transition(TaskStatus.CANCELLED, phase="cancelled"))
+            return
+        if state.status is TaskStatus.PENDING:
+            state = state.transition(TaskStatus.PLANNING)
+        if state.status is TaskStatus.WAITING_FOR_INPUT:
+            state = state.transition(TaskStatus.PLANNING)
+        steps = tuple(
+            replace(step, status=TaskStepStatus.FAILED, error=error)
+            if step.status is TaskStepStatus.ACTIVE else step
+            for step in state.steps
+        )
+        state = state.with_updates(
+            pending_action=None,
+            steps=steps,
+            errors=(*state.errors, error),
+            results=(*state.results, TaskResult(step=state.current_step or "task", success=False, error=error)),
+        ).transition(TaskStatus.FAILED, phase="failed")
+        self.store.save(state)

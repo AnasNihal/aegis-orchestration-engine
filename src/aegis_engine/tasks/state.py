@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import StrEnum
+import hmac
 from threading import RLock
+from typing import Any
 from uuid import uuid4
 
 
@@ -35,6 +37,17 @@ class TaskStep:
     name: str
     status: TaskStepStatus = TaskStepStatus.PENDING
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class PendingToolAction:
+    name: str
+    arguments: dict[str, Any]
+    call_id: str | None
+    model_id: str
+    allowed_tools: tuple[str, ...]
+    messages: tuple[dict[str, Any], ...]
+    confirmation_token: str
 
 
 class TaskStateError(ValueError):
@@ -99,6 +112,7 @@ class TaskState:
     selected_models: tuple[str, ...] = ()
     final_output: str | None = None
     cancellation_requested: bool = False
+    pending_action: PendingToolAction | None = None
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
 
@@ -118,6 +132,32 @@ class TaskState:
         steps = list(self.steps)
         steps[index] = TaskStep(name=steps[index].name, status=status, error=error)
         return self.with_updates(steps=tuple(steps))
+
+
+def resolve_confirmation(task: TaskState, token: str, *, approved: bool) -> TaskState:
+    """Validate a one-use confirmation token and resolve a paused action."""
+
+    action = task.pending_action
+    if task.status is not TaskStatus.WAITING_FOR_CONFIRMATION or action is None:
+        raise TaskStateError("task is not waiting for confirmation")
+    if not hmac.compare_digest(action.confirmation_token, token):
+        raise TaskStateError("invalid confirmation token")
+    if approved:
+        return task.transition(TaskStatus.PLANNING, phase="resuming")
+
+    error = f"User denied confirmation for tool: {action.name}"
+    steps = tuple(
+        replace(step, status=TaskStepStatus.FAILED, error=error)
+        if step.status is TaskStepStatus.WAITING else step
+        for step in task.steps
+    )
+    return task.with_updates(
+        pending_action=None,
+        current_step=None,
+        steps=steps,
+        errors=(*task.errors, error),
+        results=(*task.results, TaskResult(step=f"tool:{action.name}", success=False, error=error)),
+    ).transition(TaskStatus.PLANNING).transition(TaskStatus.FAILED, phase="confirmation_denied")
 
 
 class InMemoryTaskStateStore:
@@ -164,9 +204,18 @@ class InMemoryTaskStateStore:
             if state.status is TaskStatus.PENDING:
                 state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
             elif state.status in {TaskStatus.WAITING_FOR_INPUT, TaskStatus.WAITING_FOR_CONFIRMATION}:
-                state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
+                state = state.with_updates(
+                    cancellation_requested=True, pending_action=None
+                ).transition(TaskStatus.CANCELLED)
             elif state.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
                 state = state.with_updates(cancellation_requested=True)
+            self._states[task_id] = state
+            return state
+
+    def resolve_confirmation(self, task_id: str, token: str, *, approved: bool) -> TaskState:
+        with self._lock:
+            state = self.get(task_id)
+            state = resolve_confirmation(state, token, approved=approved)
             self._states[task_id] = state
             return state
 

@@ -1,7 +1,9 @@
 from aegis_engine.storage import SQLiteTaskStateStore
 import pytest
 
-from aegis_engine.tasks import TaskResult, TaskStateError, TaskStatus, TaskStep, TaskStepStatus
+from aegis_engine.tasks import (
+    PendingToolAction, TaskResult, TaskStateError, TaskStatus, TaskStep, TaskStepStatus,
+)
 
 
 def test_sqlite_store_round_trips_task_state(tmp_path) -> None:
@@ -106,3 +108,34 @@ def test_restart_recovery_closes_interrupted_tasks(tmp_path) -> None:
     with pytest.raises(TaskStateError, match="terminal"):
         restarted.save(active.with_updates(phase="late worker save"))
     assert restarted.get("running").status is TaskStatus.FAILED
+
+
+def test_sqlite_store_persists_and_consumes_confirmation_once(tmp_path) -> None:
+    store = SQLiteTaskStateStore(tmp_path / "confirm.sqlite3")
+    state = store.create("Confirm a tool action", task_id="confirm")
+    pending = PendingToolAction(
+        name="write_file",
+        arguments={"path": "notes.txt", "content": "hello"},
+        call_id="call-1",
+        model_id="local-model",
+        allowed_tools=("write_file",),
+        messages=({"role": "user", "content": "write it"},),
+        confirmation_token="single-use-token-0123456789abcdef",
+    )
+    state = state.transition(TaskStatus.PLANNING).with_updates(pending_action=pending)
+    state = state.transition(TaskStatus.WAITING_FOR_CONFIRMATION)
+    store.save(state)
+
+    reopened = SQLiteTaskStateStore(tmp_path / "confirm.sqlite3")
+    restored = reopened.get("confirm")
+    assert restored.pending_action == pending
+    with pytest.raises(TaskStateError, match="invalid confirmation token"):
+        reopened.resolve_confirmation("confirm", "wrong-token", approved=True)
+
+    approved = reopened.resolve_confirmation(
+        "confirm", pending.confirmation_token, approved=True
+    )
+    assert approved.status is TaskStatus.PLANNING
+    assert approved.pending_action == pending
+    with pytest.raises(TaskStateError, match="not waiting"):
+        reopened.resolve_confirmation("confirm", pending.confirmation_token, approved=True)

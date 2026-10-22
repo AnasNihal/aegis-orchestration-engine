@@ -56,6 +56,7 @@ class ToolExecutor:
         arguments: Mapping[str, Any] | None = None,
         *,
         allowed_tools: set[str] | frozenset[str] | None = None,
+        confirmation_granted: bool = False,
     ) -> ToolResult:
         started = monotonic()
         try:
@@ -71,7 +72,9 @@ class ToolExecutor:
         except ValueError as exc:
             return self._failure(name, f"Invalid tool arguments: {exc}", tool=tool, started=started)
         if tool.permission is PermissionClass.CONFIRMATION_REQUIRED:
-            confirmed = self.confirmation_handler is not None and self.confirmation_handler(tool, args)
+            confirmed = confirmation_granted or (
+                self.confirmation_handler is not None and self.confirmation_handler(tool, args)
+            )
             if not confirmed:
                 return self._failure(
                     name,

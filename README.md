@@ -101,10 +101,13 @@ GET  /api/models
 GET  /api/tasks/{task_id}
 POST /api/tasks
 POST /api/tasks/{task_id}/cancel
+POST /api/tasks/{task_id}/confirm
 POST /api/chat
 ```
 
 `POST /api/tasks` is the orchestration-oriented endpoint: it accepts work, returns `202 Accepted` with a task ID, and runs the bounded task in the background. Poll `GET /api/tasks/{task_id}` for plan, checkpoint, result, error, and model information. `POST /api/tasks/{task_id}/cancel` requests cancellation through the runtime's bounded cancellation checks.
+
+If a permitted tool requires approval, the task pauses with `waiting_for_confirmation` and its `pending_action` appears in the task response. Send that action's confirmation token and an explicit decision to `POST /api/tasks/{task_id}/confirm`; approval resumes exactly that recorded tool call, while denial fails the task without running it. The token is single-use, and the tool schema, task allowlist, and permission checks still apply. This release resumes one approved tool call and then asks the model for a final response; it does not yet resume arbitrary multi-step plans. Keep the unauthenticated API bound to localhost; do not expose it to a network you do not trust.
 
 For a local smoke test, submit a task and use the returned `task_id` to inspect it:
 
@@ -199,4 +202,4 @@ Task state is stored separately from conversation context, long-term memory, and
 
 Implemented: local Ollama provider, model discovery, deterministic routing, bounded orchestration, FastAPI REST API, OpenAPI documentation, streaming browser UI, safe tools, SQLite task state, agent profiles, verification, and evaluation primitives.
 
-Not yet implemented: hosted provider adapters, full automatic tool selection, multi-step plan execution and resumption beyond bounded tool iterations, parallel agents, semantic long-term memory, and a production API/frontend. These are intentionally separate future milestones. The next recommended step is a safe confirmation and resume flow for paused tasks, followed by orchestrator-controlled agent delegation.
+Not yet implemented: hosted provider adapters, full automatic tool selection, multi-step plan execution and resumption beyond a single confirmed tool call, parallel agents, semantic long-term memory, and a production API/frontend. These are intentionally separate future milestones. The next recommended step is orchestrator-controlled agent delegation with strict task boundaries, followed by broader end-to-end reliability tests.

@@ -79,6 +79,12 @@ class TaskStepResponse(BaseModel):
     error: str | None = None
 
 
+class PendingActionResponse(BaseModel):
+    tool_name: str
+    arguments: dict[str, Any]
+    confirmation_token: str
+
+
 class TaskResponse(BaseModel):
     task_id: str
     user_request: str
@@ -94,6 +100,7 @@ class TaskResponse(BaseModel):
     selected_models: list[str]
     final_output: str | None
     cancellation_requested: bool
+    pending_action: PendingActionResponse | None
     created_at: str
     updated_at: str
 
@@ -107,6 +114,18 @@ class TaskCancellationResponse(BaseModel):
     task_id: str
     status: str
     cancellation_requested: bool
+
+
+class TaskConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation_token: str = Field(min_length=32, max_length=128)
+    approved: bool
+
+
+class TaskConfirmationResponse(BaseModel):
+    task_id: str
+    status: str
 
 
 def build_runtime(config: Settings) -> tuple[Orchestrator, tuple[ModelInfo, ...]]:
@@ -214,6 +233,15 @@ def create_app(
             selected_models=list(task.selected_models),
             final_output=task.final_output,
             cancellation_requested=task.cancellation_requested,
+            pending_action=(
+                PendingActionResponse(
+                    tool_name=task.pending_action.name,
+                    arguments=task.pending_action.arguments,
+                    confirmation_token=task.pending_action.confirmation_token,
+                )
+                if task.status is TaskStatus.WAITING_FOR_CONFIRMATION and task.pending_action
+                else None
+            ),
             created_at=task.created_at,
             updated_at=task.updated_at,
         )
@@ -258,6 +286,27 @@ def create_app(
             status=task.status.value,
             cancellation_requested=task.cancellation_requested,
         )
+
+    @app.post(
+        "/api/tasks/{task_id}/confirm",
+        response_model=TaskConfirmationResponse,
+        tags=["tasks"],
+    )
+    async def confirm_task(task_id: str, body: TaskConfirmationRequest) -> TaskConfirmationResponse:
+        if runner is None:
+            raise HTTPException(status_code=503, detail="task runner is unavailable")
+        try:
+            task = runner.confirm(
+                task_id,
+                body.confirmation_token,
+                approved=body.approved,
+            )
+        except TaskCapacityError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except TaskStateError as exc:
+            code = 403 if "confirmation token" in str(exc) else 409
+            raise HTTPException(status_code=code, detail=str(exc)) from exc
+        return TaskConfirmationResponse(task_id=task_id, status=task.status.value)
 
     @app.post(
         "/api/chat",

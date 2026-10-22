@@ -22,6 +22,8 @@ from aegis_engine.tasks.state import (
     TaskStatus,
     TaskStep,
     TaskStepStatus,
+    PendingToolAction,
+    resolve_confirmation,
 )
 
 
@@ -61,6 +63,7 @@ class SQLiteTaskStateStore:
                     phase TEXT NOT NULL,
                     plan_json TEXT NOT NULL,
                     steps_json TEXT NOT NULL DEFAULT '[]',
+                    pending_action_json TEXT NOT NULL DEFAULT 'null',
                     current_step TEXT,
                     completed_steps_json TEXT NOT NULL,
                     results_json TEXT NOT NULL,
@@ -79,7 +82,9 @@ class SQLiteTaskStateStore:
             columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
             if "steps_json" not in columns:
                 connection.execute("ALTER TABLE tasks ADD COLUMN steps_json TEXT NOT NULL DEFAULT '[]'")
-            connection.execute("UPDATE schema_version SET version=2")
+            if "pending_action_json" not in columns:
+                connection.execute("ALTER TABLE tasks ADD COLUMN pending_action_json TEXT NOT NULL DEFAULT 'null'")
+            connection.execute("UPDATE schema_version SET version=3")
             connection.commit()
             if self._connection is None:
                 connection.close()
@@ -95,11 +100,11 @@ class SQLiteTaskStateStore:
             try:
                 connection.execute(
                     """INSERT INTO tasks(
-                        task_id, user_request, status, phase, plan_json, steps_json,
+                        task_id, user_request, status, phase, plan_json, steps_json, pending_action_json,
                         current_step, completed_steps_json, results_json, errors_json,
                         retry_count, selected_models_json, final_output,
                         cancellation_requested, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     _state_values(state),
                 )
                 connection.commit()
@@ -116,7 +121,7 @@ class SQLiteTaskStateStore:
             connection = self._connect()
             try:
                 cursor = connection.execute(
-                    """UPDATE tasks SET user_request=?, status=?, phase=?, plan_json=?, steps_json=?,
+                    """UPDATE tasks SET user_request=?, status=?, phase=?, plan_json=?, steps_json=?, pending_action_json=?,
                     current_step=?, completed_steps_json=?, results_json=?, errors_json=?,
                     retry_count=?, selected_models_json=?, final_output=?,
                     cancellation_requested=MAX(cancellation_requested, ?), created_at=?, updated_at=?
@@ -170,7 +175,9 @@ class SQLiteTaskStateStore:
                 if state.status is TaskStatus.PENDING:
                     state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
                 elif state.status in {TaskStatus.WAITING_FOR_INPUT, TaskStatus.WAITING_FOR_CONFIRMATION}:
-                    state = state.with_updates(cancellation_requested=True).transition(TaskStatus.CANCELLED)
+                    state = state.with_updates(
+                        cancellation_requested=True, pending_action=None
+                    ).transition(TaskStatus.CANCELLED)
                 elif state.status not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
                     state = state.with_updates(cancellation_requested=True)
                 else:
@@ -184,6 +191,12 @@ class SQLiteTaskStateStore:
                 if self._connection is None:
                     connection.close()
         return state
+
+    def resolve_confirmation(self, task_id: str, token: str, *, approved: bool) -> TaskState:
+        with self._lock:
+            state = self.get(task_id)
+            resolved = resolve_confirmation(state, token, approved=approved)
+            return self.save(resolved)
 
     def recover_interrupted(self) -> int:
         """Close tasks abandoned by a previous single-process API instance."""
@@ -276,6 +289,7 @@ def _state_values(state: TaskState) -> tuple[object, ...]:
         state.phase,
         _json(state.plan),
         _json([{"name": step.name, "status": step.status.value, "error": step.error} for step in state.steps]),
+        _json(asdict(state.pending_action) if state.pending_action is not None else None),
         state.current_step,
         _json(state.completed_steps),
         _json([asdict(result) for result in state.results]),
@@ -309,6 +323,7 @@ def _row_to_state(row: sqlite3.Row) -> TaskState:
             )
             for item in json.loads(row["steps_json"])
         ),
+        pending_action=_pending_action(row["pending_action_json"]),
         current_step=row["current_step"],
         completed_steps=tuple(json.loads(row["completed_steps_json"])),
         results=results,
@@ -320,3 +335,12 @@ def _row_to_state(row: sqlite3.Row) -> TaskState:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
+
+
+def _pending_action(value: str) -> PendingToolAction | None:
+    item = json.loads(value)
+    if item is None:
+        return None
+    item["allowed_tools"] = tuple(item["allowed_tools"])
+    item["messages"] = tuple(item["messages"])
+    return PendingToolAction(**item)

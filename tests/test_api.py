@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from aegis_engine.api import create_app
 from aegis_engine.config import Settings
 from aegis_engine.models import ChatRequest, ChatResponse, ModelInfo
-from aegis_engine.tasks import InMemoryTaskStateStore, TaskStatus
+from aegis_engine.tasks import InMemoryTaskStateStore, PendingToolAction, TaskStatus
 
 
 @dataclass
@@ -204,3 +204,56 @@ def test_task_api_rejects_full_queue_and_persists_cancel_request() -> None:
             assert status == "cancelled"
     finally:
         orchestrator.release.set()
+
+
+def test_task_confirmation_endpoint_checks_token_and_resumes_task() -> None:
+    class ConfirmableOrchestrator:
+        def __init__(self) -> None:
+            self.store = InMemoryTaskStateStore()
+            state = self.store.create("run approved action", task_id="confirm-api")
+            state = state.transition(TaskStatus.PLANNING).with_updates(
+                pending_action=PendingToolAction(
+                    name="example_action",
+                    arguments={"value": "safe"},
+                    call_id="call-1",
+                    model_id="local-model",
+                    allowed_tools=("example_action",),
+                    messages=(),
+                    confirmation_token="api-confirmation-token-0123456789",
+                )
+            ).transition(TaskStatus.WAITING_FOR_CONFIRMATION)
+            self.store.save(state)
+
+        def run(self, request: str, **kwargs):
+            raise AssertionError("the seeded confirmation task should not be resubmitted")
+
+        def resume_confirmation(self, task_id: str, **kwargs):
+            state = self.store.get(task_id)
+            state = self.store.save(
+                state.transition(TaskStatus.EXECUTING).with_updates(final_output="done")
+            )
+            return self.store.save(state.transition(TaskStatus.COMPLETED))
+
+    orchestrator = ConfirmableOrchestrator()
+    with TestClient(create_app(orchestrator=orchestrator, models=())) as client:
+        wrong = client.post(
+            "/api/tasks/confirm-api/confirm",
+            json={"confirmation_token": "incorrect-confirmation-token-0000", "approved": True},
+        )
+        assert wrong.status_code == 403
+
+        approved = client.post(
+            "/api/tasks/confirm-api/confirm",
+            json={"confirmation_token": "api-confirmation-token-0123456789", "approved": True},
+        )
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "planning"
+
+        deadline = monotonic() + 2
+        while monotonic() < deadline:
+            task = client.get("/api/tasks/confirm-api").json()
+            if task["status"] == "completed":
+                break
+            sleep(0.01)
+        assert task["status"] == "completed"
+        assert task["final_output"] == "done"
